@@ -33,5 +33,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Config
   getConfig: () => ipcRenderer.invoke('config:get'),
-  setConfig: (config) => ipcRenderer.invoke('config:set', config)
+  setConfig: (config) => ipcRenderer.invoke('config:set', config),
+
+  // History
+  getHistory: () => ipcRenderer.invoke('history:getAll'),
+  addHistory: (url, title) => ipcRenderer.invoke('history:add', url, title),
+  searchHistory: (query) => ipcRenderer.invoke('history:search', query),
+  clearHistory: () => ipcRenderer.invoke('history:clear')
 });

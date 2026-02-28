@@ -48,75 +48,48 @@ const elements = {
   progressBar: document.getElementById('progress-bar')
 };
 
-// URL History Manager
+// URL History Manager (uses main process for persistence)
 class URLHistory {
   constructor() {
-    this.maxItems = 100;
-    this.storageKey = 'adb-browser-url-history';
-    this.history = this.load();
+    this.history = [];
+    this.load();
   }
 
-  load() {
+  async load() {
     try {
-      const data = localStorage.getItem(this.storageKey);
-      return data ? JSON.parse(data) : [];
-    } catch {
+      this.history = await window.electronAPI.getHistory();
+    } catch (e) {
+      console.warn('Failed to load URL history:', e);
+      this.history = [];
+    }
+  }
+
+  async add(url, title = '') {
+    if (!url || url === 'about:blank') return;
+
+    try {
+      this.history = await window.electronAPI.addHistory(url, title);
+    } catch (e) {
+      console.warn('Failed to add URL history:', e);
+    }
+  }
+
+  async search(query) {
+    try {
+      return await window.electronAPI.searchHistory(query);
+    } catch (e) {
+      console.warn('Failed to search URL history:', e);
       return [];
     }
   }
 
-  save() {
+  async clear() {
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(this.history));
+      await window.electronAPI.clearHistory();
+      this.history = [];
     } catch (e) {
-      console.warn('Failed to save URL history:', e);
+      console.warn('Failed to clear URL history:', e);
     }
-  }
-
-  add(url, title = '') {
-    if (!url || url === 'about:blank') return;
-
-    // Remove existing entry
-    this.history = this.history.filter(item => item.url !== url);
-
-    // Add to front
-    this.history.unshift({
-      url,
-      title: title || this.extractTitle(url),
-      timestamp: Date.now()
-    });
-
-    // Limit size
-    if (this.history.length > this.maxItems) {
-      this.history = this.history.slice(0, this.maxItems);
-    }
-
-    this.save();
-  }
-
-  extractTitle(url) {
-    try {
-      const urlObj = new URL(url);
-      return urlObj.hostname;
-    } catch {
-      return url;
-    }
-  }
-
-  search(query) {
-    if (!query) return this.history.slice(0, 10);
-
-    const lowerQuery = query.toLowerCase();
-    return this.history.filter(item => {
-      const urlMatch = item.url.toLowerCase().includes(lowerQuery);
-      const titleMatch = item.title.toLowerCase().includes(lowerQuery);
-      return urlMatch || titleMatch;
-    }).slice(0, 10);
-  }
-
-  clear() {
-    this.history = [];
-    this.save();
   }
 }
 
@@ -724,10 +697,10 @@ function setupEventListeners() {
     }
   });
 
-  elements.urlInput.addEventListener('input', () => {
+  elements.urlInput.addEventListener('input', async () => {
     const query = elements.urlInput.value.trim();
     if (query) {
-      const suggestions = urlHistory.search(query);
+      const suggestions = await urlHistory.search(query);
       showSuggestions(suggestions);
     } else {
       hideSuggestions();
@@ -735,11 +708,11 @@ function setupEventListeners() {
   });
 
   // URL input select on focus
-  elements.urlInput.addEventListener('focus', () => {
+  elements.urlInput.addEventListener('focus', async () => {
     elements.urlInput.select();
     const query = elements.urlInput.value.trim();
     if (query) {
-      const suggestions = urlHistory.search(query);
+      const suggestions = await urlHistory.search(query);
       showSuggestions(suggestions);
     }
   });

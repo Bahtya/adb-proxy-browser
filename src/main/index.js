@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { getAdbManager } = require('./adb');
 const TrayManager = require('./tray');
 
@@ -143,6 +144,77 @@ class ConnectionManager {
 let mainWindow = null;
 let connectionManager = null;
 let trayManager = null;
+
+// History management
+const historyFile = path.join(app.getPath('userData'), 'url-history.json');
+const MAX_HISTORY_ITEMS = 100;
+
+function loadHistory() {
+  try {
+    if (fs.existsSync(historyFile)) {
+      const data = fs.readFileSync(historyFile, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('[History] Failed to load:', err.message);
+  }
+  return [];
+}
+
+function saveHistory(history) {
+  try {
+    fs.writeFileSync(historyFile, JSON.stringify(history, null, 2));
+  } catch (err) {
+    console.error('[History] Failed to save:', err.message);
+  }
+}
+
+function addToHistory(url, title) {
+  if (!url || url === 'about:blank') return;
+
+  const history = loadHistory();
+
+  // Remove existing entry with same URL
+  const filtered = history.filter(item => item.url !== url);
+
+  // Add to front
+  filtered.unshift({
+    url,
+    title: title || extractTitle(url),
+    timestamp: Date.now()
+  });
+
+  // Limit size
+  const limited = filtered.slice(0, MAX_HISTORY_ITEMS);
+  saveHistory(limited);
+
+  return limited;
+}
+
+function extractTitle(url) {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname;
+  } catch {
+    return url;
+  }
+}
+
+function searchHistory(query) {
+  const history = loadHistory();
+  if (!query) return history.slice(0, 10);
+
+  const lowerQuery = query.toLowerCase();
+  return history.filter(item => {
+    const urlMatch = item.url.toLowerCase().includes(lowerQuery);
+    const titleMatch = item.title.toLowerCase().includes(lowerQuery);
+    return urlMatch || titleMatch;
+  }).slice(0, 10);
+}
+
+function clearHistory() {
+  saveHistory([]);
+}
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -334,6 +406,27 @@ function setupIpc() {
     } catch (err) {
       return { success: false, error: err.message };
     }
+  });
+
+  // History: Get all
+  ipcMain.handle('history:getAll', () => {
+    return loadHistory();
+  });
+
+  // History: Add
+  ipcMain.handle('history:add', (event, url, title) => {
+    return addToHistory(url, title);
+  });
+
+  // History: Search
+  ipcMain.handle('history:search', (event, query) => {
+    return searchHistory(query);
+  });
+
+  // History: Clear
+  ipcMain.handle('history:clear', () => {
+    clearHistory();
+    return true;
   });
 }
 
