@@ -1,4 +1,4 @@
-const { getDeviceManager } = require('./device');
+const { getDeviceManager, findAdbPath } = require('./device');
 const PortForwarder = require('./forward');
 const Adb = require('adbkit');
 
@@ -8,6 +8,7 @@ class AdbManager {
     this.deviceManager = null;
     this.portForwarder = null;
     this.initialized = false;
+    this.adbPath = null;
   }
 
   /**
@@ -17,14 +18,21 @@ class AdbManager {
     if (this.initialized) return;
 
     try {
-      // Create ADB client
-      this.client = Adb.createClient();
+      // Get ADB path
+      this.adbPath = findAdbPath();
+
+      // Create ADB client with correct settings
+      this.client = Adb.createClient({
+        bin: this.adbPath,
+        host: '127.0.0.1',
+        port: 5037
+      });
 
       // Initialize device manager
       this.deviceManager = getDeviceManager();
       await this.deviceManager.init();
 
-      // Initialize port forwarder
+      // Initialize port forwarder with the same client
       this.portForwarder = new PortForwarder(this.client);
 
       this.initialized = true;
