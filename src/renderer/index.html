@@ -3,41 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self' https: http:">
   <title>ADB Proxy Browser</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app-container">
-    <!-- Header / Toolbar -->
+    <!-- Toolbar (Chrome-style) -->
     <header class="toolbar">
       <div class="toolbar-left">
-        <button id="btn-back" class="nav-btn" title="Back">
+        <!-- Navigation Buttons -->
+        <button id="btn-back" class="nav-btn" title="Back (Alt+Left)" aria-label="Go back">
           <svg viewBox="0 0 24 24" width="18" height="18">
             <path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
           </svg>
         </button>
-        <button id="btn-forward" class="nav-btn" title="Forward">
+        <button id="btn-forward" class="nav-btn" title="Forward (Alt+Right)" aria-label="Go forward">
           <svg viewBox="0 0 24 24" width="18" height="18">
             <path fill="currentColor" d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
           </svg>
         </button>
-        <button id="btn-refresh" class="nav-btn" title="Refresh">
+        <button id="btn-refresh" class="nav-btn" title="Refresh (F5)" aria-label="Refresh page">
           <svg viewBox="0 0 24 24" width="18" height="18">
             <path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
           </svg>
         </button>
+
+        <!-- URL Bar -->
         <div class="url-bar">
-          <input type="text" id="url-input" placeholder="Enter URL or search...">
+          <input type="text" id="url-input" placeholder="Search or enter URL" aria-label="URL input" autocomplete="off">
+          <div id="url-suggestions" class="url-suggestions"></div>
         </div>
-        <button id="btn-go" class="nav-btn">Go</button>
       </div>
+
       <div class="toolbar-right">
-        <div class="connection-status" id="connection-status">
+        <!-- Connection Status (Compact) -->
+        <div class="connection-status" id="connection-status" title="Click to manage connection">
           <span class="status-indicator disconnected"></span>
-          <span class="status-text">Disconnected</span>
+          <span class="status-text">Offline</span>
         </div>
-        <button id="btn-settings" class="nav-btn" title="Settings">
+
+        <!-- Settings Button -->
+        <button id="btn-settings" class="btn-settings" title="Settings" aria-label="Settings">
           <svg viewBox="0 0 24 24" width="18" height="18">
             <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
           </svg>
@@ -45,44 +52,75 @@
       </div>
     </header>
 
+    <!-- Tab Bar (Chrome-style) -->
+    <div id="tab-bar" class="tab-bar" style="display: none;">
+      <div id="tab-list" class="tab-list"></div>
+      <button id="btn-new-tab" class="btn-new-tab" title="New Tab (Ctrl+T)" aria-label="New tab">
+        <svg viewBox="0 0 24 24" width="14" height="14">
+          <path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Find Bar -->
+    <div id="find-bar" class="find-bar">
+      <input type="text" id="find-input" placeholder="Find in page" aria-label="Find in page">
+      <span id="find-count" class="find-count"></span>
+      <button id="find-prev" class="find-nav-btn" title="Previous (Shift+Enter)" aria-label="Previous match">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <path fill="currentColor" d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
+        </svg>
+      </button>
+      <button id="find-next" class="find-nav-btn" title="Next (Enter)" aria-label="Next match">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <path fill="currentColor" d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>
+        </svg>
+      </button>
+      <button id="find-close" class="find-close" title="Close (Esc)" aria-label="Close find bar">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+        </svg>
+      </button>
+    </div>
+
     <!-- Main Content Area -->
     <main class="main-content">
       <!-- Welcome Screen / Control Panel -->
       <div id="welcome-screen" class="welcome-screen">
         <div class="welcome-container">
           <h1>ADB Proxy Browser</h1>
-          <p class="subtitle">Browse the internet through your phone's proxy</p>
+          <p class="subtitle">Browse through your phone's proxy connection</p>
 
           <!-- Device Status -->
           <div class="device-panel">
-            <h3>Device Status</h3>
+            <h3>Device</h3>
             <div id="device-info" class="device-info">
               <span class="device-status">No device detected</span>
             </div>
           </div>
 
-          <!-- Connection Controls -->
+          <!-- Connection Button -->
           <div class="control-panel">
             <button id="btn-connect" class="btn-connect">
-              <svg viewBox="0 0 24 24" width="24" height="24">
+              <svg viewBox="0 0 24 24" width="20" height="20">
                 <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
               </svg>
-              <span>Connect Phone</span>
+              <span>Connect</span>
             </button>
           </div>
 
           <!-- Quick Settings -->
           <div class="quick-settings">
             <div class="setting-row">
-              <label>Proxy Port (Browser):</label>
+              <label>Local Port</label>
               <input type="number" id="proxy-port" value="7890" min="1" max="65535">
             </div>
             <div class="setting-row">
-              <label>Phone Proxy Port:</label>
+              <label>Phone Port</label>
               <input type="number" id="remote-port" value="7890" min="1" max="65535">
             </div>
             <div class="setting-row">
-              <label>Proxy Type:</label>
+              <label>Proxy Type</label>
               <select id="proxy-type">
                 <option value="http" selected>HTTP</option>
                 <option value="socks5">SOCKS5</option>
@@ -92,21 +130,27 @@
 
           <!-- Instructions -->
           <div class="instructions">
-            <h4>How to use:</h4>
+            <h4>Quick Start</h4>
             <ol>
-              <li>Connect your Android phone via USB</li>
-              <li>Enable USB debugging on your phone</li>
-              <li>Make sure Clash (or other proxy) is running on your phone</li>
-              <li>Enable "Allow LAN connections" in your proxy app</li>
-              <li>Click "Connect Phone" button</li>
-              <li>Start browsing!</li>
+              <li>Connect Android phone via USB</li>
+              <li>Enable USB debugging</li>
+              <li>Run Clash or proxy app on phone</li>
+              <li>Enable "Allow LAN" in proxy app</li>
+              <li>Click Connect button</li>
             </ol>
           </div>
         </div>
       </div>
 
-      <!-- Browser View (hidden initially) -->
-      <webview id="browser-view" class="browser-view" style="display: none;"></webview>
+      <!-- Browser Wrapper for flex layout -->
+      <div id="browser-wrapper" class="browser-wrapper" style="display: none;">
+        <!-- Browser Container (webview tabs) -->
+        <div id="browser-container" class="browser-container">
+          <div id="progress-bar-container" class="progress-bar-container">
+            <div id="progress-bar" class="progress-bar"></div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -115,21 +159,25 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2>Settings</h2>
-        <button id="btn-close-settings" class="close-btn">&times;</button>
+        <button id="btn-close-settings" class="close-btn" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18">
+            <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
       </div>
       <div class="modal-body">
         <div class="setting-group">
-          <h4>Proxy Settings</h4>
+          <h4>Proxy Configuration</h4>
           <div class="setting-row">
-            <label>Proxy Port (Browser):</label>
+            <label>Local Port</label>
             <input type="number" id="settings-proxy-port" value="7890" min="1" max="65535">
           </div>
           <div class="setting-row">
-            <label>Phone Proxy Port:</label>
+            <label>Phone Port</label>
             <input type="number" id="settings-remote-port" value="7890" min="1" max="65535">
           </div>
           <div class="setting-row">
-            <label>Proxy Type:</label>
+            <label>Proxy Type</label>
             <select id="settings-proxy-type">
               <option value="http" selected>HTTP</option>
               <option value="socks5">SOCKS5</option>

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const { getAdbManager } = require('./adb');
 const TrayManager = require('./tray');
@@ -132,7 +132,8 @@ async function createWindow() {
       preload: path.join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: true
+      webSecurity: true,
+      webviewTag: true
     },
     title: 'ADB Proxy Browser',
     show: false
@@ -144,12 +145,6 @@ async function createWindow() {
   // Show window when ready
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-  });
-
-  // Handle external links
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
   });
 
   // Create tray
