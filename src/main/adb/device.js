@@ -69,8 +69,13 @@ class DeviceManager extends EventEmitter {
 
     try {
       this.client = Adb.createClient({
-        bin: this.adbPath
+        bin: this.adbPath,
+        host: '127.0.0.1', // Force IPv4
+        port: 5037
       });
+
+      // Try to start ADB server
+      await this.startAdbServer();
 
       // Start tracking devices
       await this.startTracking();
@@ -83,6 +88,45 @@ Or install via Android Studio -> SDK Manager -> Platform Tools
 
 After installation, ensure adb is in your PATH or restart the application.`);
     }
+  }
+
+  /**
+   * Start ADB server
+   */
+  async startAdbServer() {
+    return new Promise((resolve, reject) => {
+      const { spawn } = require('child_process');
+      console.log('[ADB] Starting ADB server...');
+
+      const adbProcess = spawn(this.adbPath, ['start-server'], {
+        stdio: 'pipe'
+      });
+
+      let output = '';
+
+      adbProcess.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      adbProcess.stderr.on('data', (data) => {
+        output += data.toString();
+      });
+
+      adbProcess.on('close', (code) => {
+        if (code === 0) {
+          console.log('[ADB] Server started successfully');
+          resolve();
+        } else {
+          console.error('[ADB] Server start failed:', output);
+          reject(new Error('Failed to start ADB server'));
+        }
+      });
+
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        resolve(); // Resolve anyway, server might already be running
+      }, 10000);
+    });
   }
 
   /**
