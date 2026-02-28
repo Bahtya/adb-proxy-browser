@@ -8,17 +8,23 @@ files:
   - package.json
 win:
   target:
-    - dir
-    - zip
-  sign: null
+    - target: zip
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
 mac:
   target:
-    - dmg
-    - zip
+    - target: zip
+      arch:
+        - x64
+        - arm64
 linux:
   target:
-    - AppImage
-    - deb
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
