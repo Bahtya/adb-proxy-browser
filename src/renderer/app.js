@@ -199,6 +199,33 @@ class TabManager {
         // executeJavaScript may fail for some pages
       }
 
+      // Inject script to handle target="_blank" links
+      // Since new-window event doesn't fire reliably in Electron 28, we use console message
+      try {
+        webview.executeJavaScript(`
+          (function() {
+            // Remove any existing handler
+            if (window.__blankLinkHandler) {
+              document.removeEventListener('click', window.__blankLinkHandler, true);
+            }
+            // Add new handler
+            window.__blankLinkHandler = function(e) {
+              var link = e.target.closest('a[target="_blank"]');
+              if (link && link.href) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                console.log('__NEW_TAB__:' + link.href);
+                return false;
+              }
+            };
+            document.addEventListener('click', window.__blankLinkHandler, true);
+          })();
+        `).catch(() => {});
+      } catch (e) {
+        // Ignore errors
+      }
+
       // Force webview to recalculate its internal size
       const container = elements.browserContainer;
       if (container) {
@@ -243,6 +270,16 @@ class TabManager {
     // Handle new window requests (links with target="_blank")
     webview.addEventListener('new-window', (e) => {
       this.createTab(e.url);
+    });
+
+    // Handle console messages for new-tab requests from injected script
+    webview.addEventListener('console-message', (e) => {
+      const message = e.message;
+      // Check for special new-tab message format
+      if (message.startsWith('__NEW_TAB__:')) {
+        const url = message.substring('__NEW_TAB__:'.length);
+        this.createTab(url);
+      }
     });
 
     // Context menu (right-click)
@@ -673,6 +710,7 @@ let state = {
 
 // Tab manager instance
 const tabManager = new TabManager();
+window.tabManager = tabManager; // Expose for testing
 
 // URL history instance
 const urlHistory = new URLHistory();
@@ -943,17 +981,23 @@ async function navigate(url) {
       urlHistory.add(webview.getURL(), title);
 
       // Inject script to handle target="_blank" links
+      // Since new-window event doesn't fire reliably in Electron 28, we use console message
       webview.executeJavaScript(`
         (function() {
-          document.addEventListener('click', function(e) {
+          if (window.__blankLinkHandler) {
+            document.removeEventListener('click', window.__blankLinkHandler, true);
+          }
+          window.__blankLinkHandler = function(e) {
             var link = e.target.closest('a[target="_blank"]');
             if (link && link.href) {
               e.preventDefault();
               e.stopPropagation();
-              window.location.href = link.href;
+              e.stopImmediatePropagation();
+              console.log('__NEW_TAB__:' + link.href);
               return false;
             }
-          }, true);
+          };
+          document.addEventListener('click', window.__blankLinkHandler, true);
         })();
       `).catch(() => {});
     });
@@ -978,6 +1022,15 @@ async function navigate(url) {
 
     webview.addEventListener('page-title-updated', (e) => {
       document.title = e.title + ' - ADB Proxy Browser';
+    });
+
+    // Handle console messages for new-tab requests from injected script
+    webview.addEventListener('console-message', (e) => {
+      const message = e.message;
+      if (message.startsWith('__NEW_TAB__:')) {
+        const url = message.substring('__NEW_TAB__:'.length);
+        tabManager.createTab(url);
+      }
     });
   }
 

@@ -10,7 +10,8 @@
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
     "debug:screenshot": "electron scripts/debug-screenshot.js",
-    "debug:auto": "electron scripts/debug-auto.js"
+    "debug:auto": "electron scripts/debug-auto.js",
+    "test:browser": "electron scripts/test-browser-features.js"
   },
   "author": "Bahtya",
   "license": "MIT",
