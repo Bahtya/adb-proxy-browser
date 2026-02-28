@@ -38,10 +38,9 @@ let state = {
   currentUrl: '',
   adbError: null,
   config: {
-    proxyPort: 7890,
-    tunnelPort: 7891,
+    localPort: 7890,
     remotePort: 7890,
-    proxyType: 'socks5'
+    proxyType: 'http'
   }
 };
 
@@ -170,7 +169,7 @@ async function toggleConnection() {
 
     try {
       const result = await window.electronAPI.connect({
-        proxyPort: state.config.proxyPort,
+        localPort: state.config.localPort,
         remotePort: state.config.remotePort,
         proxyType: state.config.proxyType
       });
@@ -235,7 +234,7 @@ function updateDeviceUI() {
 
 // Update config from UI
 async function updateConfig() {
-  state.config.proxyPort = parseInt(elements.proxyPort.value) || 7890;
+  state.config.localPort = parseInt(elements.proxyPort.value) || 7890;
   state.config.remotePort = parseInt(elements.remotePort.value) || 7890;
   state.config.proxyType = elements.proxyType.value;
 
@@ -248,11 +247,11 @@ async function updateConfig() {
 
 // Update settings UI
 function updateSettingsUI() {
-  elements.proxyPort.value = state.config.proxyPort;
+  elements.proxyPort.value = state.config.localPort;
   elements.remotePort.value = state.config.remotePort;
   elements.proxyType.value = state.config.proxyType;
 
-  elements.settingsProxyPort.value = state.config.proxyPort;
+  elements.settingsProxyPort.value = state.config.localPort;
   elements.settingsRemotePort.value = state.config.remotePort;
   elements.settingsProxyType.value = state.config.proxyType;
 }
@@ -270,7 +269,7 @@ function closeSettings() {
 
 // Save settings
 async function saveSettings() {
-  state.config.proxyPort = parseInt(elements.settingsProxyPort.value) || 7890;
+  state.config.localPort = parseInt(elements.settingsProxyPort.value) || 7890;
   state.config.remotePort = parseInt(elements.settingsRemotePort.value) || 7890;
   state.config.proxyType = elements.settingsProxyType.value;
 

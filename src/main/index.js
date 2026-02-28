@@ -1,27 +1,22 @@
 const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
 const path = require('path');
 const { getAdbManager } = require('./adb');
-const { getProxyManager } = require('./proxy');
 const TrayManager = require('./tray');
-const { downloadPlatformTools, hasBundledAdb, getBundledAdbPath } = require('./adb/download');
 
-// Connection Manager
+// Connection Manager - Simplified (direct ADB tunnel, no internal proxy)
 class ConnectionManager {
   constructor() {
     this.adbManager = getAdbManager();
-    this.proxyManager = getProxyManager();
     this.connected = false;
     this.currentDevice = null;
 
     // Configuration
-    // proxyPort: Local port for browser to connect
-    // tunnelPort: Local port that's forwarded to phone
+    // localPort: Local port for browser to connect (same as phone's proxy port)
     // remotePort: Port on phone where Clash is listening
     this.config = {
-      proxyPort: 7890,
-      tunnelPort: 7891,
+      localPort: 7890,
       remotePort: 7890,
-      proxyType: 'socks5'
+      proxyType: 'http'
     };
   }
 
@@ -33,7 +28,7 @@ class ConnectionManager {
   }
 
   /**
-   * Connect to device and start proxy
+   * Connect to device - Simple ADB forward only
    */
   async connect(config = {}) {
     if (this.connected) {
@@ -51,26 +46,16 @@ class ConnectionManager {
 
     this.currentDevice = device;
 
-    // Create ADB port forward
-    // Forward local tunnelPort to phone's remotePort
+    // Create ADB port forward (direct tunnel to phone's proxy)
     await this.adbManager.forward(
-      this.config.tunnelPort,
+      this.config.localPort,
       this.config.remotePort,
       device.id
     );
 
-    // Start local proxy server
-    // Browser connects to proxyPort, which forwards to tunnelPort
-    await this.proxyManager.start({
-      proxyPort: this.config.proxyPort,
-      tunnelPort: this.config.tunnelPort,
-      remotePort: this.config.remotePort,
-      type: this.config.proxyType
-    });
-
     this.connected = true;
     console.log(`[Connection] Connected to ${device.id}`);
-    console.log(`[Connection] Proxy: ${this.config.proxyPort} -> Tunnel: ${this.config.tunnelPort} -> Phone: ${this.config.remotePort}`);
+    console.log(`[Connection] Tunnel: localhost:${this.config.localPort} -> phone:${this.config.remotePort}`);
 
     return {
       success: true,
@@ -80,16 +65,13 @@ class ConnectionManager {
   }
 
   /**
-   * Disconnect and stop proxy
+   * Disconnect and remove forward
    */
   async disconnect() {
     if (!this.connected) return;
 
-    // Stop proxy
-    await this.proxyManager.stop();
-
     // Remove port forward
-    await this.adbManager.removeForward(this.config.tunnelPort);
+    await this.adbManager.removeForward(this.config.localPort);
 
     this.connected = false;
     this.currentDevice = null;
@@ -106,8 +88,18 @@ class ConnectionManager {
       connected: this.connected,
       device: this.currentDevice,
       ...this.config,
-      proxyUrl: this.proxyManager.getProxyUrl()
+      proxyUrl: this.getProxyUrl()
     };
+  }
+
+  /**
+   * Get proxy URL for Electron
+   */
+  getProxyUrl() {
+    if (this.config.proxyType === 'socks5') {
+      return `socks5://127.0.0.1:${this.config.localPort}`;
+    }
+    return `http://127.0.0.1:${this.config.localPort}`;
   }
 
   /**
@@ -223,13 +215,13 @@ function setupIpc() {
 
   // Proxy: Set port
   ipcMain.handle('proxy:setPort', (event, port) => {
-    connectionManager.setConfig({ proxyPort: port });
+    connectionManager.setConfig({ localPort: port });
     return true;
   });
 
   // Proxy: Get port
   ipcMain.handle('proxy:getPort', () => {
-    return connectionManager.config.proxyPort;
+    return connectionManager.config.localPort;
   });
 
   // Proxy: Set type
@@ -299,12 +291,14 @@ function setupIpc() {
 
   // ADB: Check if bundled ADB exists
   ipcMain.handle('adb:hasBundled', () => {
+    const { hasBundledAdb } = require('./adb/download');
     return hasBundledAdb();
   });
 
   // ADB: Download platform tools
   ipcMain.handle('adb:download', async (event) => {
     try {
+      const { downloadPlatformTools } = require('./adb/download');
       const adbPath = await downloadPlatformTools((status, progress) => {
         mainWindow.webContents.send('adb:downloadProgress', { status, progress });
       });
