@@ -3,6 +3,28 @@ const path = require('path');
 const { getAdbManager } = require('./adb');
 const TrayManager = require('./tray');
 
+// Single Instance Lock
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  // Another instance is already running, quit this one
+  console.log('[App] Another instance is already running, quitting...');
+  app.quit();
+} else {
+  // This is the first instance
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, focus our window instead
+    console.log('[App] Second instance detected, focusing main window...');
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 // Connection Manager - Simplified (direct ADB tunnel, no internal proxy)
 class ConnectionManager {
   constructor() {
@@ -359,14 +381,16 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send('device:changed', connectionManager.adbManager.getDevices());
     }
   });
+});
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    } else if (mainWindow) {
-      mainWindow.show();
-    }
-  });
+app.on('activate', () => {
+  // macOS: Re-create window when dock icon is clicked
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  } else if (mainWindow) {
+    mainWindow.show();
+    mainWindow.focus();
+  }
 });
 
 app.on('before-quit', async () => {
