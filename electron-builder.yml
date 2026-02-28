@@ -8,8 +8,9 @@ files:
   - package.json
 win:
   target:
-    - nsis
-    - portable
+    - dir
+    - zip
+  sign: null
 mac:
   target:
     - dmg
