@@ -4,6 +4,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Device management
   getDevices: () => ipcRenderer.invoke('adb:getDevices'),
   onDeviceChanged: (callback) => ipcRenderer.on('device:changed', (event, data) => callback(data)),
+  onAdbError: (callback) => ipcRenderer.on('adb:error', (event, error) => callback(error)),
+
+  // ADB management
+  hasBundledAdb: () => ipcRenderer.invoke('adb:hasBundled'),
+  downloadAdb: () => ipcRenderer.invoke('adb:download'),
+  retryAdb: () => ipcRenderer.invoke('adb:retry'),
+  onAdbDownloadProgress: (callback) => ipcRenderer.on('adb:downloadProgress', (event, data) => callback(data)),
 
   // Connection management
   connect: (config) => ipcRenderer.invoke('connection:connect', config),

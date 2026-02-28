@@ -36,6 +36,7 @@ let state = {
   connected: false,
   devices: [],
   currentUrl: '',
+  adbError: null,
   config: {
     proxyPort: 7890,
     tunnelPort: 7891,
@@ -46,6 +47,12 @@ let state = {
 
 // Initialize
 async function init() {
+  // Listen for ADB errors
+  window.electronAPI.onAdbError((error) => {
+    state.adbError = error;
+    showAdbError(error);
+  });
+
   // Load config
   try {
     const config = await window.electronAPI.getConfig();
@@ -279,3 +286,109 @@ async function saveSettings() {
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', init);
+
+// Show ADB error
+function showAdbError(error) {
+  const deviceInfo = elements.deviceInfo;
+  deviceInfo.innerHTML = `
+    <div class="adb-error">
+      <span class="error-icon">⚠️</span>
+      <span class="error-text">ADB not found</span>
+      <button class="btn-download" onclick="downloadAdb()">Auto Download</button>
+      <button class="error-help" onclick="showAdbHelp()">Manual</button>
+    </div>
+  `;
+
+  // Disable connect button
+  elements.btnConnect.disabled = true;
+  elements.btnConnect.title = 'ADB is required to connect';
+}
+
+// Download ADB automatically
+async function downloadAdb() {
+  const deviceInfo = elements.deviceInfo;
+  deviceInfo.innerHTML = `
+    <div class="adb-downloading">
+      <span class="download-icon">⬇️</span>
+      <span class="download-text">Downloading ADB...</span>
+      <span class="download-progress" id="adb-progress">0%</span>
+    </div>
+  `;
+
+  // Listen for progress
+  window.electronAPI.onAdbDownloadProgress((data) => {
+    const progressEl = document.getElementById('adb-progress');
+    if (progressEl) {
+      progressEl.textContent = `${data.progress}%`;
+    }
+  });
+
+  try {
+    const result = await window.electronAPI.downloadAdb();
+    if (result.success) {
+      deviceInfo.innerHTML = `
+        <div class="adb-success">
+          <span class="success-icon">✅</span>
+          <span class="success-text">ADB installed!</span>
+        </div>
+      `;
+
+      // Retry ADB initialization
+      const retryResult = await window.electronAPI.retryAdb();
+      if (retryResult.success) {
+        // Re-enable connect button
+        elements.btnConnect.disabled = false;
+        elements.btnConnect.title = '';
+        updateDeviceUI();
+      } else {
+        showAdbError(retryResult.error);
+      }
+    } else {
+      showAdbError(result.error);
+    }
+  } catch (err) {
+    showAdbError(err.message);
+  }
+}
+
+// Make downloadAdb available globally
+window.downloadAdb = downloadAdb;
+
+// Show ADB installation help
+window.showAdbHelp = function() {
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.innerHTML = `
+    <div class="modal-content adb-help-modal">
+      <h3>Install ADB (Android Debug Bridge)</h3>
+      <div class="help-section">
+        <h4>Option 1: Auto Download (Recommended)</h4>
+        <p>Click the "Auto Download" button to automatically download and install ADB.</p>
+      </div>
+      <div class="help-section">
+        <h4>Option 2: Download Platform Tools</h4>
+        <ol>
+          <li>Download from <a href="https://developer.android.com/studio/releases/platform-tools" target="_blank">Android Developer</a></li>
+          <li>Extract to a folder (e.g., C:\\platform-tools)</li>
+          <li>Add the folder to your PATH environment variable</li>
+          <li>Restart ADB Proxy Browser</li>
+        </ol>
+      </div>
+      <div class="help-section">
+        <h4>Option 3: Install via Package Manager</h4>
+        <pre>choco install adb</pre>
+        <p>or</p>
+        <pre>scoop install adb</pre>
+      </div>
+      <button class="btn btn-primary" onclick="this.closest('.modal').remove()">Close</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+};
+
+// Open external link - exposed via preload
+window.openExternal = function(url) {
+  // This will be handled by clicking the link directly
+  // Electron will open external links in default browser
+  return true;
+};

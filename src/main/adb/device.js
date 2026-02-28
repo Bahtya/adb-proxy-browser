@@ -1,5 +1,53 @@
 const Adb = require('adbkit');
 const EventEmitter = require('events');
+const path = require('path');
+const fs = require('fs');
+const { getBundledAdbPath, hasBundledAdb } = require('./download');
+
+// Common ADB paths on different platforms
+const ADB_PATHS = {
+  win32: [
+    getBundledAdbPath(), // Check bundled adb first
+    path.join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
+    path.join(process.env.USERPROFILE || '', 'AppData', 'Local', 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
+    'C:\\Program Files\\Android\\Android Studio\\platform-tools\\adb.exe',
+    'C:\\Android\\platform-tools\\adb.exe',
+  ],
+  darwin: [
+    getBundledAdbPath(),
+    '/usr/local/bin/adb',
+    '/opt/homebrew/bin/adb',
+    path.join(process.env.HOME || '', 'Library', 'Android', 'sdk', 'platform-tools', 'adb'),
+  ],
+  linux: [
+    getBundledAdbPath(),
+    '/usr/bin/adb',
+    '/usr/local/bin/adb',
+    path.join(process.env.HOME || '', 'Android', 'Sdk', 'platform-tools', 'adb'),
+  ]
+};
+
+/**
+ * Find ADB binary path
+ */
+function findAdbPath() {
+  const platform = process.platform;
+  const paths = ADB_PATHS[platform] || [];
+
+  for (const adbPath of paths) {
+    try {
+      if (fs.existsSync(adbPath)) {
+        console.log(`[ADB] Found adb at: ${adbPath}`);
+        return adbPath;
+      }
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // Try to find in PATH
+  return 'adb';
+}
 
 class DeviceManager extends EventEmitter {
   constructor() {
@@ -7,6 +55,7 @@ class DeviceManager extends EventEmitter {
     this.client = null;
     this.devices = [];
     this.tracking = false;
+    this.adbPath = null;
   }
 
   /**
@@ -15,10 +64,25 @@ class DeviceManager extends EventEmitter {
   async init() {
     if (this.client) return;
 
-    this.client = Adb.createClient();
+    // Find ADB
+    this.adbPath = findAdbPath();
 
-    // Start tracking devices
-    await this.startTracking();
+    try {
+      this.client = Adb.createClient({
+        bin: this.adbPath
+      });
+
+      // Start tracking devices
+      await this.startTracking();
+    } catch (err) {
+      console.error('[ADB] Failed to initialize:', err.message);
+      throw new Error(`ADB not found. Please install Android Platform Tools:
+
+Windows: Download from https://developer.android.com/studio/releases/platform-tools
+Or install via Android Studio -> SDK Manager -> Platform Tools
+
+After installation, ensure adb is in your PATH or restart the application.`);
+    }
   }
 
   /**
@@ -30,6 +94,7 @@ class DeviceManager extends EventEmitter {
     try {
       const tracker = await this.client.trackDevices();
       this.tracking = true;
+      console.log('[ADB] Device tracking started');
 
       tracker.on('add', (device) => {
         console.log(`[ADB] Device connected: ${device.id}`);
@@ -143,5 +208,6 @@ function getDeviceManager() {
 
 module.exports = {
   DeviceManager,
-  getDeviceManager
+  getDeviceManager,
+  findAdbPath
 };

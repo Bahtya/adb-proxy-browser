@@ -3,6 +3,7 @@ const path = require('path');
 const { getAdbManager } = require('./adb');
 const { getProxyManager } = require('./proxy');
 const TrayManager = require('./tray');
+const { downloadPlatformTools, hasBundledAdb, getBundledAdbPath } = require('./adb/download');
 
 // Connection Manager
 class ConnectionManager {
@@ -295,6 +296,34 @@ function setupIpc() {
     connectionManager.setConfig(config);
     return true;
   });
+
+  // ADB: Check if bundled ADB exists
+  ipcMain.handle('adb:hasBundled', () => {
+    return hasBundledAdb();
+  });
+
+  // ADB: Download platform tools
+  ipcMain.handle('adb:download', async (event) => {
+    try {
+      const adbPath = await downloadPlatformTools((status, progress) => {
+        mainWindow.webContents.send('adb:downloadProgress', { status, progress });
+      });
+      return { success: true, path: adbPath };
+    } catch (err) {
+      console.error('[IPC] ADB download error:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // ADB: Retry initialization
+  ipcMain.handle('adb:retry', async () => {
+    try {
+      await connectionManager.init();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
 }
 
 // Set proxy for browser window
@@ -319,14 +348,21 @@ app.whenReady().then(async () => {
   // Initialize connection manager
   connectionManager = new ConnectionManager();
 
+  let adbError = null;
   try {
     await connectionManager.init();
   } catch (err) {
     console.error('[App] Failed to initialize connection manager:', err.message);
+    adbError = err.message;
   }
 
   setupIpc();
   await createWindow();
+
+  // Send ADB error to renderer if any
+  if (adbError && mainWindow) {
+    mainWindow.webContents.send('adb:error', adbError);
+  }
 
   // Listen for device changes
   connectionManager.adbManager.onDevicesUpdated(() => {

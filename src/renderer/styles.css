@@ -424,3 +424,124 @@ body {
     font-size: 14px;
   }
 }
+
+/* ADB Error Styles */
+.adb-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ff6b6b;
+  font-size: 12px;
+}
+
+.error-icon {
+  font-size: 16px;
+}
+
+.error-text {
+  font-weight: 500;
+}
+
+.error-help {
+  background: none;
+  border: 1px solid #ff6b6b;
+  color: #ff6b6b;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.error-help:hover {
+  background: #ff6b6b;
+  color: white;
+}
+
+/* ADB Help Modal */
+.adb-help-modal {
+  max-width: 600px;
+  text-align: left;
+}
+
+.adb-help-modal h3 {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.adb-help-modal h4 {
+  color: #e94560;
+  margin-bottom: 10px;
+}
+
+.adb-help-modal .help-section {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #1a1a2e;
+  border-radius: 8px;
+}
+
+.adb-help-modal ol {
+  margin-left: 20px;
+}
+
+.adb-help-modal li {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.adb-help-modal pre {
+  background: #0f0f1a;
+  padding: 10px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.adb-help-modal a {
+  color: #e94560;
+  text-decoration: none;
+}
+
+.adb-help-modal a:hover {
+  text-decoration: underline;
+}
+
+/* ADB Download Styles */
+.btn-download {
+  background: linear-gradient(135deg, #4caf50, #2e7d32);
+  border: none;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.btn-download:hover {
+  opacity: 0.9;
+}
+
+.adb-downloading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ff9800;
+  font-size: 12px;
+}
+
+.download-icon {
+  animation: bounce 1s infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.adb-success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #4caf50;
+  font-size: 12px;
+}
