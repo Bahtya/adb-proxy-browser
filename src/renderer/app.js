@@ -104,6 +104,7 @@ class TabManager {
   // Preload script for Ctrl+click handling
   getPreloadScript() {
     return 'data:text/javascript,' + encodeURIComponent(`
+      // Ctrl+click handling
       document.addEventListener('click', (e) => {
         if (e.ctrlKey || e.metaKey) {
           const link = e.target.closest('a');
@@ -155,10 +156,8 @@ class TabManager {
     // Create webview
     const webview = document.createElement('webview');
     webview.id = tabId;
-    webview.className = 'browser-view';
+    webview.style.cssText = 'position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%;';
     webview.setAttribute('allowpopups', '');
-    webview.setAttribute('preload', this.getPreloadScript());
-    webview.style.cssText = 'position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; display: none;';
 
     // Webview events
     webview.addEventListener('did-start-loading', () => {
@@ -183,6 +182,36 @@ class TabManager {
       // Save to history
       if (url && url !== 'about:blank') {
         urlHistory.add(url, title);
+      }
+
+      // Force webview content to fill the container
+      // This fixes the issue where webview guest page doesn't fill the element
+      try {
+        webview.executeJavaScript(`
+          (function() {
+            var style = document.createElement('style');
+            style.textContent = 'html, body { min-height: 100vh !important; height: auto !important; }';
+            if (document.head) document.head.appendChild(style);
+            else if (document.documentElement) document.documentElement.appendChild(style);
+          })();
+        `).catch(() => {}); // Ignore errors for cross-origin pages
+      } catch (e) {
+        // executeJavaScript may fail for some pages
+      }
+
+      // Force webview to recalculate its internal size
+      const container = elements.browserContainer;
+      if (container) {
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        // Trigger resize by temporarily changing size
+        webview.style.width = (width - 1) + 'px';
+        webview.style.height = (height - 1) + 'px';
+        // Restore correct size
+        requestAnimationFrame(() => {
+          webview.style.width = width + 'px';
+          webview.style.height = height + 'px';
+        });
       }
     });
 
@@ -279,13 +308,20 @@ class TabManager {
       url: url
     });
 
+    // Switch to new tab first (this shows the browser wrapper)
+    this.switchTab(tabId);
+
+    // Set explicit dimensions BEFORE loading URL (critical for proper webview sizing)
+    const container = elements.browserContainer;
+    if (container) {
+      webview.style.width = container.clientWidth + 'px';
+      webview.style.height = container.clientHeight + 'px';
+    }
+
     // Load URL if provided
     if (url && url !== 'about:blank') {
       webview.src = url;
     }
-
-    // Switch to new tab
-    this.switchTab(tabId);
 
     return tabId;
   }
@@ -437,6 +473,12 @@ class TabManager {
   navigate(url) {
     const webview = this.getActiveWebview();
     if (webview) {
+      // Ensure webview has correct dimensions before loading
+      const container = elements.browserContainer;
+      if (container) {
+        webview.style.width = container.clientWidth + 'px';
+        webview.style.height = container.clientHeight + 'px';
+      }
       webview.src = url;
     }
   }
@@ -874,12 +916,80 @@ async function navigate(url) {
   // Show browser view
   showBrowserView();
 
-  // Create tab if none exists, or navigate in active tab
-  if (tabManager.tabs.size === 0) {
-    tabManager.createTab(url);
-  } else {
-    tabManager.navigate(url);
+  // Simple direct webview creation
+  let webview = document.querySelector('webview');
+  if (!webview) {
+    const container = document.getElementById('browser-container');
+    webview = document.createElement('webview');
+    webview.id = 'main-webview';
+    webview.style.cssText = 'position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%;';
+    container.insertBefore(webview, container.firstChild);
+
+    webview.addEventListener('did-start-loading', () => {
+      elements.btnRefresh.classList.add('loading');
+      updateNavigationButtons(webview);
+    });
+
+    webview.addEventListener('did-stop-loading', () => {
+      elements.btnRefresh.classList.remove('loading');
+    });
+
+    webview.addEventListener('did-finish-load', () => {
+      const title = webview.getTitle() || 'Untitled';
+      document.title = title + ' - ADB Proxy Browser';
+      elements.urlInput.value = webview.getURL();
+      updateNavigationButtons(webview);
+      // Save to history
+      urlHistory.add(webview.getURL(), title);
+
+      // Inject script to handle target="_blank" links
+      webview.executeJavaScript(`
+        (function() {
+          document.addEventListener('click', function(e) {
+            var link = e.target.closest('a[target="_blank"]');
+            if (link && link.href) {
+              e.preventDefault();
+              e.stopPropagation();
+              window.location.href = link.href;
+              return false;
+            }
+          }, true);
+        })();
+      `).catch(() => {});
+    });
+
+    webview.addEventListener('did-fail-load', (e) => {
+      if (e.errorCode !== -3) { // Ignore aborted loads
+        console.error('Load failed:', e);
+      }
+    });
+
+    webview.addEventListener('did-navigate', (e) => {
+      elements.urlInput.value = e.url;
+      updateNavigationButtons(webview);
+    });
+
+    webview.addEventListener('did-navigate-in-page', (e) => {
+      if (e.isMainFrame) {
+        elements.urlInput.value = e.url;
+        updateNavigationButtons(webview);
+      }
+    });
+
+    webview.addEventListener('page-title-updated', (e) => {
+      document.title = e.title + ' - ADB Proxy Browser';
+    });
   }
+
+  // Set size before loading
+  const container = document.getElementById('browser-container');
+  if (container) {
+    webview.style.width = container.clientWidth + 'px';
+    webview.style.height = container.clientHeight + 'px';
+  }
+
+  // Load URL
+  webview.src = url;
 }
 
 // Show URL suggestions
@@ -1122,6 +1232,116 @@ async function saveSettings() {
 // Initialize on load
 document.addEventListener('DOMContentLoaded', init);
 
+// Handle window resize - force webview to recalculate size
+window.addEventListener('resize', () => {
+  const container = document.getElementById('browser-container');
+  if (!container) return;
+
+  const webview = document.querySelector('webview');
+  if (webview && webview.style.display !== 'none') {
+    webview.style.width = container.clientWidth + 'px';
+    webview.style.height = container.clientHeight + 'px';
+  }
+});
+
+// ========== DEBUG MODE ==========
+// Press Ctrl+Shift+D to toggle debug visualization
+// Press Ctrl+Shift+L to log layout info to console
+(function initDebugMode() {
+  let debugStyles = null;
+
+  function injectDebugCSS() {
+    if (debugStyles) return;
+    debugStyles = document.createElement('style');
+    debugStyles.id = 'debug-styles';
+    debugStyles.textContent = `
+      /* Debug visualization */
+      .main-content { border: 3px solid orange !important; background: rgba(255,165,0,0.1) !important; }
+      .browser-wrapper { border: 3px solid red !important; background: rgba(255,0,0,0.1) !important; }
+      .browser-container { border: 3px solid blue !important; background: rgba(0,0,255,0.1) !important; }
+      webview, .browser-view { border: 3px solid green !important; background: rgba(0,255,0,0.2) !important; min-height: 100px !important; }
+      .welcome-screen { border: 3px solid purple !important; }
+      .toolbar { border: 2px solid cyan !important; }
+      .tab-bar { border: 2px solid magenta !important; }
+    `;
+    document.head.appendChild(debugStyles);
+    console.log('[Debug] CSS injected - borders: toolbar(cyan), main-content(orange), wrapper(red), container(blue), webview(green)');
+  }
+
+  function removeDebugCSS() {
+    if (debugStyles) {
+      debugStyles.remove();
+      debugStyles = null;
+      console.log('[Debug] CSS removed');
+    }
+  }
+
+  function logLayoutInfo() {
+    const info = {
+      window: { width: window.innerWidth, height: window.innerHeight },
+      toolbar: document.querySelector('.toolbar')?.offsetHeight,
+      tabBar: document.getElementById('tab-bar')?.offsetHeight,
+      tabBarDisplay: getComputedStyle(document.getElementById('tab-bar')).display,
+      mainContent: document.querySelector('.main-content')?.offsetHeight,
+      wrapper: {
+        display: getComputedStyle(document.getElementById('browser-wrapper')).display,
+        height: document.getElementById('browser-wrapper')?.offsetHeight
+      },
+      container: {
+        position: getComputedStyle(document.getElementById('browser-container')).position,
+        height: document.getElementById('browser-container')?.offsetHeight
+      },
+      webview: (() => {
+        const wv = document.querySelector('webview');
+        return wv ? {
+          display: getComputedStyle(wv).display,
+          height: wv.offsetHeight,
+          src: wv.src?.substring(0, 50)
+        } : null;
+      })()
+    };
+    console.log('\n========== LAYOUT DEBUG ==========');
+    console.table({
+      'Window': `${info.window.width} x ${info.window.height}`,
+      'Toolbar': info.toolbar + 'px',
+      'TabBar': `${info.tabBar}px (${info.tabBarDisplay})`,
+      'MainContent': info.mainContent + 'px',
+      'Wrapper': `${info.wrapper.height}px (${info.wrapper.display})`,
+      'Container': `${info.container.height}px (${info.container.position})`,
+      'Webview': info.webview ? `${info.webview.height}px` : 'N/A'
+    });
+    console.log('Full info:', info);
+    console.log('==================================\n');
+    return info;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    // Ctrl+Shift+D: Toggle debug CSS
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+      e.preventDefault();
+      if (debugStyles) {
+        removeDebugCSS();
+      } else {
+        injectDebugCSS();
+      }
+    }
+    // Ctrl+Shift+L: Log layout info
+    if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+      e.preventDefault();
+      logLayoutInfo();
+    }
+  });
+
+  // Expose to window
+  window.debugLayout = {
+    injectCSS: injectDebugCSS,
+    removeCSS: removeDebugCSS,
+    log: logLayoutInfo
+  };
+
+  console.log('[Debug] Press Ctrl+Shift+D to toggle debug borders, Ctrl+Shift+L to log layout info');
+})();
+
 // Show ADB error
 function showAdbError(error) {
   const deviceInfo = elements.deviceInfo;
@@ -1227,3 +1447,142 @@ window.openExternal = function(url) {
   // Electron will open external links in default browser
   return true;
 };
+
+// ========== DEBUG MODE ==========
+// Press Ctrl+Shift+D to toggle debug visualization
+// Press Ctrl+Shift+L to log layout info to console
+(function() {
+  let debugStyles = null;
+
+  function injectDebugCSS() {
+    if (debugStyles) return;
+    debugStyles = document.createElement('style');
+    debugStyles.id = 'debug-styles';
+    debugStyles.textContent = `
+      /* Debug visualization */
+      .main-content { border: 3px solid orange !important; background: rgba(255,165,0,0.1) !important; }
+      .browser-wrapper { border: 3px solid red !important; background: rgba(255,0,0,0.1) !important; }
+      .browser-container { border: 3px solid blue !important; background: rgba(0,0,255,0.1) !important; }
+      webview, .browser-view { border: 3px solid green !important; background: rgba(0,255,0,0.2) !important; min-height: 100px !important; }
+      .welcome-screen { border: 3px solid purple !important; }
+      .toolbar { border: 2px solid cyan !important; }
+      .tab-bar { border: 2px solid magenta !important; }
+    `;
+    document.head.appendChild(debugStyles);
+    console.log('[Debug] CSS injected - colors: orange=main-content, red=browser-wrapper, blue=browser-container, green=webview, purple=welcome');
+  }
+
+  function removeDebugCSS() {
+    if (debugStyles) {
+      debugStyles.remove();
+      debugStyles = null;
+      console.log('[Debug] CSS removed');
+    }
+  }
+
+  function getLayoutInfo() {
+    const wrapper = document.getElementById('browser-wrapper');
+    const container = document.getElementById('browser-container');
+    const mainContent = document.querySelector('.main-content');
+    const welcome = document.getElementById('welcome-screen');
+    const webview = document.querySelector('webview');
+    const toolbar = document.querySelector('.toolbar');
+    const tabBar = document.getElementById('tab-bar');
+
+    const info = {
+      window: { width: window.innerWidth, height: window.innerHeight },
+      toolbar: toolbar ? {
+        height: toolbar.offsetHeight,
+        display: getComputedStyle(toolbar).display
+      } : null,
+      tabBar: tabBar ? {
+        height: tabBar.offsetHeight,
+        display: getComputedStyle(tabBar).display
+      } : null,
+      mainContent: mainContent ? {
+        display: getComputedStyle(mainContent).display,
+        flex: getComputedStyle(mainContent).flex,
+        height: mainContent.offsetHeight,
+        clientHeight: mainContent.clientHeight
+      } : null,
+      wrapper: wrapper ? {
+        display: getComputedStyle(wrapper).display,
+        flex: getComputedStyle(wrapper).flex,
+        position: getComputedStyle(wrapper).position,
+        height: wrapper.offsetHeight,
+        clientHeight: wrapper.clientHeight
+      } : null,
+      container: container ? {
+        display: getComputedStyle(container).display,
+        position: getComputedStyle(container).position,
+        height: container.offsetHeight,
+        clientHeight: container.clientHeight
+      } : null,
+      webview: webview ? {
+        display: getComputedStyle(webview).display,
+        position: getComputedStyle(webview).position,
+        width: webview.offsetWidth,
+        height: webview.offsetHeight,
+        clientWidth: webview.clientWidth,
+        clientHeight: webview.clientHeight,
+        src: webview.src ? webview.src.substring(0, 100) : null
+      } : null,
+      welcome: welcome ? {
+        display: getComputedStyle(welcome).display,
+        height: welcome.offsetHeight
+      } : null
+    };
+
+    console.log('\n========== LAYOUT INFO ==========');
+    console.log('Window:', info.window.width + 'x' + info.window.height);
+    if (info.mainContent) console.log('Main Content:', 'height=' + info.mainContent.height + 'px, flex=' + info.mainContent.flex);
+    if (info.wrapper) console.log('Browser Wrapper:', 'display=' + info.wrapper.display + ', height=' + info.wrapper.height + 'px');
+    if (info.container) console.log('Browser Container:', 'position=' + info.container.position + ', height=' + info.container.height + 'px');
+    if (info.webview) console.log('Webview:', 'height=' + info.webview.height + 'px, width=' + info.webview.width + 'px');
+    if (info.welcome) console.log('Welcome Screen:', 'display=' + info.welcome.display);
+    console.log('================================\n');
+
+    // Check for issues
+    if (info.webview && info.webview.height < 300) {
+      console.warn('⚠️ ISSUE: Webview height is only ' + info.webview.height + 'px (should be > 300)');
+    }
+    if (info.wrapper && info.wrapper.height < 400 && info.wrapper.display !== 'none') {
+      console.warn('⚠️ ISSUE: Wrapper height is only ' + info.wrapper.height + 'px (should be > 400)');
+    }
+
+    return info;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    // Ctrl+Shift+D: Toggle debug CSS
+    if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.code === 'KeyD')) {
+      e.preventDefault();
+      if (debugStyles) {
+        removeDebugCSS();
+        alert('Debug CSS removed');
+      } else {
+        injectDebugCSS();
+        alert('Debug CSS injected - check colored borders');
+      }
+    }
+
+    // Ctrl+Shift+L: Log layout info
+    if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.code === 'KeyL')) {
+      e.preventDefault();
+      const info = getLayoutInfo();
+      alert('Layout Info:\n' +
+        'Window: ' + info.window.width + 'x' + info.window.height + '\n' +
+        'Webview height: ' + (info.webview ? info.webview.height : 'N/A') + 'px\n' +
+        'Wrapper height: ' + (info.wrapper ? info.wrapper.height : 'N/A') + 'px\n' +
+        'Container height: ' + (info.container ? info.container.height : 'N/A') + 'px\n' +
+        'Check console (F12) for full details');
+    }
+  });
+
+  // Expose to window for console access
+  window.debugLayout = {
+    injectCSS: injectDebugCSS,
+    removeCSS: removeDebugCSS,
+    getInfo: getLayoutInfo
+  };
+})();
