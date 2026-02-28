@@ -32,8 +32,8 @@ class AdbManager {
       this.deviceManager = getDeviceManager();
       await this.deviceManager.init();
 
-      // Initialize port forwarder with the same client
-      this.portForwarder = new PortForwarder(this.client);
+      // Initialize port forwarder with client and adb path
+      this.portForwarder = new PortForwarder(this.client, this.adbPath);
 
       this.initialized = true;
       console.log('[ADB] Manager initialized successfully');
