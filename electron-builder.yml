@@ -1,0 +1,23 @@
+appId: com.bahtya.adb-proxy-browser
+productName: ADB Proxy Browser
+directories:
+  output: dist
+files:
+  - src/**/*
+  - assets/**/*
+  - package.json
+win:
+  target:
+    - nsis
+    - portable
+mac:
+  target:
+    - dmg
+    - zip
+linux:
+  target:
+    - AppImage
+    - deb
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
