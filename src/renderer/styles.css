@@ -55,6 +55,8 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
 
 .nav-btn {
@@ -551,7 +553,7 @@ body {
 /* URL Autocomplete Dropdown */
 .url-bar {
   flex: 1;
-  max-width: 680px;
+  min-width: 0;
   margin: 0 8px;
   position: relative;
 }
