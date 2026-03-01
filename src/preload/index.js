@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   connect: (config) => ipcRenderer.invoke('connection:connect', config),
   disconnect: () => ipcRenderer.invoke('connection:disconnect'),
   getStatus: () => ipcRenderer.invoke('connection:getStatus'),
+  probe: () => ipcRenderer.invoke('connection:probe'),
   onStatusChanged: (callback) => ipcRenderer.on('connection:statusChanged', (event, status) => callback(status)),
 
   // Proxy settings

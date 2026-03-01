@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, session } = require('electron');
+const net = require('net');
 const path = require('path');
 const fs = require('fs');
 const { getAdbManager } = require('./adb');
@@ -222,6 +223,7 @@ async function createWindow() {
     height: 800,
     minWidth: 800,
     minHeight: 600,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
@@ -446,6 +448,41 @@ function setupIpc() {
   ipcMain.handle('history:clear', () => {
     clearHistory();
     return true;
+  });
+
+  // Probe: check if the ADB tunnel port is actually reachable (TCP connect test)
+  ipcMain.handle('connection:probe', () => {
+    return new Promise((resolve) => {
+      const status = connectionManager.getStatus();
+      // Always return current device list and connected flag
+      const devices = connectionManager.adbManager.getDevices();
+
+      if (!status.connected) {
+        return resolve({ connected: false, tunnelAlive: false, devices });
+      }
+
+      // Try a real TCP connection to the forwarded local port
+      const socket = new net.Socket();
+      const port = status.localPort || 7890;
+      let done = false;
+
+      const finish = (alive) => {
+        if (done) return;
+        done = true;
+        socket.destroy();
+        // If tunnel died, update connectionManager state
+        if (!alive && connectionManager.connected) {
+          connectionManager.connected = false;
+        }
+        resolve({ connected: alive, tunnelAlive: alive, devices });
+      };
+
+      socket.setTimeout(1500);
+      socket.on('connect', () => finish(true));
+      socket.on('error', () => finish(false));
+      socket.on('timeout', () => finish(false));
+      socket.connect(port, '127.0.0.1');
+    });
   });
 }
 

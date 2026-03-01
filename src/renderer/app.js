@@ -4,6 +4,7 @@ const elements = {
   btnBack: document.getElementById('btn-back'),
   btnForward: document.getElementById('btn-forward'),
   btnRefresh: document.getElementById('btn-refresh'),
+  btnHome: document.getElementById('btn-home'),
   urlInput: document.getElementById('url-input'),
   urlSuggestions: document.getElementById('url-suggestions'),
 
@@ -69,6 +70,8 @@ class URLHistory {
 
     try {
       this.history = await window.electronAPI.addHistory(url, title);
+      // Mirror to localStorage so the new-tab page can read recent history
+      localStorage.setItem('adb_browser_history', JSON.stringify(this.history.slice(0, 20)));
     } catch (e) {
       console.warn('Failed to add URL history:', e);
     }
@@ -91,6 +94,239 @@ class URLHistory {
       console.warn('Failed to clear URL history:', e);
     }
   }
+}
+
+// New Tab Page builder
+// Bookmarks are stored in localStorage as JSON array of {title, url, icon}
+function buildNewTabPage() {
+  const defaultBookmarks = [
+    { title: 'Google', url: 'https://www.google.com', icon: 'https://www.google.com/favicon.ico' },
+    { title: 'GitHub', url: 'https://github.com', icon: 'https://github.com/favicon.ico' },
+    { title: 'YouTube', url: 'https://www.youtube.com', icon: 'https://www.youtube.com/favicon.ico' },
+    { title: 'Twitter', url: 'https://twitter.com', icon: 'https://twitter.com/favicon.ico' },
+    { title: 'Reddit', url: 'https://www.reddit.com', icon: 'https://www.reddit.com/favicon.ico' },
+    { title: 'Wikipedia', url: 'https://www.wikipedia.org', icon: 'https://www.wikipedia.org/static/favicon/wikipedia.ico' }
+  ];
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Tab</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f8f9fa;
+    color: #202124;
+    height: 100vh;
+    overflow: auto;
+  }
+  .page { max-width: 800px; margin: 0 auto; padding: 48px 24px 32px; }
+  h2 { font-size: 13px; font-weight: 500; color: #5f6368; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; }
+  .btn-edit { font-size: 12px; color: #1a73e8; background: none; border: none; cursor: pointer; padding: 2px 6px; border-radius: 4px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .btn-edit:hover { background: #e8f0fe; }
+  .bookmarks { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 40px; }
+  .bookmark {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 14px 8px; background: #fff; border-radius: 10px; text-decoration: none;
+    color: #202124; font-size: 12px; text-align: center; cursor: pointer;
+    border: 1px solid #e8eaed; transition: box-shadow 0.15s, background 0.15s; position: relative;
+  }
+  .bookmark:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.12); background: #fff; }
+  .bookmark img { width: 28px; height: 28px; border-radius: 6px; object-fit: contain; }
+  .bookmark .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+  .bookmark .del {
+    display: none; position: absolute; top: 4px; right: 4px;
+    background: #ea4335; color: #fff; border: none; border-radius: 50%;
+    width: 18px; height: 18px; font-size: 12px; line-height: 18px; text-align: center;
+    cursor: pointer;
+  }
+  .edit-mode .bookmark .del { display: block; }
+  .edit-mode .bookmark { border-style: dashed; }
+  .bookmark-add {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    padding: 14px 8px; background: transparent; border-radius: 10px;
+    border: 2px dashed #dadce0; color: #5f6368; font-size: 12px; cursor: pointer; transition: all 0.15s;
+  }
+  .bookmark-add:hover { border-color: #1a73e8; color: #1a73e8; background: #e8f0fe; }
+  .bookmark-add .plus { font-size: 24px; line-height: 28px; }
+  .history-section h2 { margin-bottom: 12px; }
+  .history-list { display: flex; flex-direction: column; gap: 2px; }
+  .history-item {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    border-radius: 8px; cursor: pointer; text-decoration: none; color: #202124;
+  }
+  .history-item:hover { background: #f1f3f4; }
+  .history-item img { width: 16px; height: 16px; border-radius: 3px; flex-shrink: 0; }
+  .history-item .h-title { font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .history-item .h-url { font-size: 11px; color: #5f6368; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal { background: #fff; border-radius: 12px; padding: 24px; width: 320px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+  .modal h3 { font-size: 16px; font-weight: 500; margin-bottom: 16px; }
+  .modal input {
+    width: 100%; padding: 8px 12px; border: 1px solid #dadce0; border-radius: 6px;
+    font-size: 14px; margin-bottom: 10px; outline: none;
+  }
+  .modal input:focus { border-color: #1a73e8; }
+  .modal-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+  .btn-cancel { padding: 8px 16px; border: none; background: none; color: #5f6368; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  .btn-cancel:hover { background: #f1f3f4; }
+  .btn-save { padding: 8px 16px; border: none; background: #1a73e8; color: #fff; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  .btn-save:hover { background: #1557b0; }
+  .favicon-err { background: #e8eaed; border-radius: 6px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #5f6368; }
+</style>
+</head>
+<body>
+<div class="page">
+  <section>
+    <h2>
+      <span>Bookmarks</span>
+      <button class="btn-edit" id="btn-edit-mode">Edit</button>
+    </h2>
+    <div class="bookmarks" id="bookmark-grid"></div>
+  </section>
+  <section class="history-section">
+    <h2><span>Recent</span></h2>
+    <div class="history-list" id="history-list"></div>
+  </section>
+</div>
+
+<!-- Add Bookmark Modal -->
+<div class="modal-overlay" id="add-modal">
+  <div class="modal">
+    <h3>Add Bookmark</h3>
+    <input type="text" id="bm-title" placeholder="Title">
+    <input type="url" id="bm-url" placeholder="https://...">
+    <div class="modal-btns">
+      <button class="btn-cancel" id="bm-cancel">Cancel</button>
+      <button class="btn-save" id="bm-save">Add</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const STORAGE_KEY = 'adb_browser_bookmarks';
+  const defaults = ${JSON.stringify(defaultBookmarks)};
+
+  function loadBookmarks() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || defaults; }
+    catch { return defaults; }
+  }
+  function saveBookmarks(bm) { localStorage.setItem(STORAGE_KEY, JSON.stringify(bm)); }
+
+  let bookmarks = loadBookmarks();
+  let editMode = false;
+
+  function iconEl(url) {
+    const domain = (() => { try { return new URL(url).origin; } catch { return ''; } })();
+    const img = document.createElement('img');
+    img.src = domain + '/favicon.ico';
+    img.onerror = () => {
+      const d = document.createElement('div');
+      d.className = 'favicon-err';
+      d.textContent = (new URL(url).hostname[0] || '?').toUpperCase();
+      img.replaceWith(d);
+    };
+    return img;
+  }
+
+  function renderBookmarks() {
+    const grid = document.getElementById('bookmark-grid');
+    grid.className = 'bookmarks' + (editMode ? ' edit-mode' : '');
+    grid.innerHTML = '';
+    bookmarks.forEach((bm, i) => {
+      const a = document.createElement('div');
+      a.className = 'bookmark';
+      a.appendChild(iconEl(bm.url));
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.title = bm.title;
+      name.textContent = bm.title;
+      a.appendChild(name);
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.textContent = '×';
+      del.onclick = (e) => { e.stopPropagation(); bookmarks.splice(i, 1); saveBookmarks(bookmarks); renderBookmarks(); };
+      a.appendChild(del);
+      if (!editMode) a.onclick = () => window.open(bm.url, '_self');
+      grid.appendChild(a);
+    });
+    // Add button
+    const add = document.createElement('div');
+    add.className = 'bookmark-add';
+    add.innerHTML = '<span class="plus">+</span><span>Add</span>';
+    add.onclick = () => openAddModal();
+    grid.appendChild(add);
+  }
+
+  function openAddModal(prefillUrl) {
+    document.getElementById('bm-title').value = '';
+    document.getElementById('bm-url').value = prefillUrl || '';
+    document.getElementById('add-modal').classList.add('active');
+    document.getElementById('bm-title').focus();
+  }
+
+  document.getElementById('bm-cancel').onclick = () => document.getElementById('add-modal').classList.remove('active');
+  document.getElementById('bm-save').onclick = () => {
+    const title = document.getElementById('bm-title').value.trim();
+    const url = document.getElementById('bm-url').value.trim();
+    if (!url) return;
+    bookmarks.push({ title: title || url, url });
+    saveBookmarks(bookmarks);
+    document.getElementById('add-modal').classList.remove('active');
+    renderBookmarks();
+  };
+  document.getElementById('add-modal').onclick = (e) => { if (e.target === e.currentTarget) e.currentTarget.classList.remove('active'); };
+
+  document.getElementById('btn-edit-mode').onclick = () => {
+    editMode = !editMode;
+    document.getElementById('btn-edit-mode').textContent = editMode ? 'Done' : 'Edit';
+    renderBookmarks();
+  };
+
+  // History from localStorage (written by host app via console messages)
+  function renderHistory() {
+    const list = document.getElementById('history-list');
+    list.innerHTML = '';
+    const raw = localStorage.getItem('adb_browser_history');
+    if (!raw) return;
+    const items = JSON.parse(raw).slice(0, 8);
+    items.forEach(item => {
+      const a = document.createElement('div');
+      a.className = 'history-item';
+      const domain = (() => { try { return new URL(item.url).origin; } catch { return ''; } })();
+      const img = document.createElement('img');
+      img.src = domain + '/favicon.ico';
+      img.onerror = () => img.remove();
+      a.appendChild(img);
+      const info = document.createElement('div');
+      info.style.flex = '1';
+      info.style.overflow = 'hidden';
+      const t = document.createElement('div');
+      t.className = 'h-title';
+      t.textContent = item.title || item.url;
+      const u = document.createElement('div');
+      u.className = 'h-url';
+      u.textContent = item.url;
+      info.appendChild(t);
+      info.appendChild(u);
+      a.appendChild(info);
+      a.onclick = () => window.open(item.url, '_self');
+      list.appendChild(a);
+    });
+  }
+
+  renderBookmarks();
+  renderHistory();
+<\/script>
+</body>
+</html>`;
 }
 
 // Tab Manager
@@ -171,6 +407,11 @@ class TabManager {
     webview.addEventListener('did-stop-loading', () => {
       elements.btnRefresh.classList.remove('loading');
       this.showProgressBar(false);
+      // Final title update after all loading stops (catches SPA and redirects)
+      const title = webview.getTitle();
+      if (title && title !== 'Loading...' && title !== 'about:blank') {
+        this.updateTabTitle(tabId, title);
+      }
     });
 
     webview.addEventListener('did-finish-load', () => {
@@ -396,9 +637,12 @@ class TabManager {
       webview.shadowRoot.appendChild(shadowStyle);
     }
 
-    // Load URL directly.
+    // Load URL directly, or show new-tab page for blank tabs.
     if (url && url !== 'about:blank') {
       webview.src = url;
+    } else {
+      // Show the new-tab navigation page inside the webview
+      webview.src = `data:text/html;charset=utf-8,${encodeURIComponent(buildNewTabPage())}`;
     }
 
     return tabId;
@@ -748,6 +992,7 @@ let state = {
   devices: [],
   currentUrl: '',
   adbError: null,
+  autoConnecting: false,
   config: {
     localPort: 7890,
     remotePort: 7890,
@@ -804,6 +1049,73 @@ async function init() {
 
   // Setup event listeners
   setupEventListeners();
+
+  // Start 2-second probe loop to keep connection status accurate
+  startConnectionProbe();
+}
+
+// Poll the main process every 2s: TCP-connect to the tunnel port to verify
+// the ADB forward is still alive. Updates status bar and triggers auto-reconnect
+// when the tunnel drops.
+function startConnectionProbe() {
+  const PROBE_INTERVAL = 2000;
+
+  async function probe() {
+    try {
+      const result = await window.electronAPI.probe();
+
+      // Update device list if it changed
+      const prevCount = state.devices.length;
+      state.devices = result.devices || [];
+      if (state.devices.length !== prevCount) updateDeviceUI();
+
+      const wasConnected = state.connected;
+
+      if (result.connected) {
+        // Tunnel is alive
+        state.connected = true;
+        if (!wasConnected) updateConnectionUI();
+      } else {
+        // Tunnel is down or was never up
+        state.connected = false;
+        if (wasConnected) updateConnectionUI();
+
+        // Trigger auto-connect if device is present and we're not already trying
+        if (state.devices.length > 0 && !state.autoConnecting) {
+          autoConnect();
+        }
+      }
+
+      updateStatusBarProbe(result);
+    } catch (e) {
+      // IPC failed — ignore silently
+    }
+
+    setTimeout(probe, PROBE_INTERVAL);
+  }
+
+  // Start after a short delay to let init() finish
+  setTimeout(probe, 1500);
+}
+
+// Update the status bar chip with live probe result
+function updateStatusBarProbe(result) {
+  const indicator = elements.connectionStatus.querySelector('.status-indicator');
+  const text = elements.connectionStatus.querySelector('.status-text');
+
+  if (result.connected) {
+    indicator.className = 'status-indicator connected';
+    text.textContent = 'Online';
+  } else if (state.autoConnecting) {
+    indicator.className = 'status-indicator connecting';
+    text.textContent = 'Connecting';
+  } else if (result.devices && result.devices.length > 0) {
+    indicator.className = 'status-indicator connecting';
+    text.textContent = 'Device found';
+  } else {
+    indicator.className = 'status-indicator disconnected';
+    text.textContent = 'No device';
+  }
 }
 
 // Setup event listeners
@@ -812,6 +1124,13 @@ function setupEventListeners() {
   elements.btnBack.addEventListener('click', () => tabManager.goBack());
   elements.btnForward.addEventListener('click', () => tabManager.goForward());
   elements.btnRefresh.addEventListener('click', () => tabManager.refresh());
+  elements.btnHome.addEventListener('click', () => {
+    const webview = tabManager.getActiveWebview();
+    if (webview) {
+      webview.src = `data:text/html;charset=utf-8,${encodeURIComponent(buildNewTabPage())}`;
+      elements.urlInput.value = '';
+    }
+  });
   elements.urlInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -1119,43 +1438,45 @@ function showWelcomeScreen() {
   elements.tabBar.style.display = 'none';
 }
 
-// Toggle connection
-async function toggleConnection() {
-  const btn = elements.btnConnect;
+// Auto-connect with retry every 2 seconds until success or no device
+async function autoConnect() {
+  if (state.autoConnecting || state.connected || state.devices.length === 0) return;
+  state.autoConnecting = true;
+  updateConnectionUI();
 
-  if (state.connected) {
-    // Disconnect
-    btn.disabled = true;
-    btn.innerHTML = '<span>Disconnecting...</span>';
-
+  while (state.devices.length > 0 && !state.connected) {
     try {
-      await window.electronAPI.disconnect();
-      state.connected = false;
-    } catch (err) {
-      console.error('Disconnect failed:', err);
-      alert('Failed to disconnect: ' + err.message);
-    }
-  } else {
-    // Connect
-    btn.disabled = true;
-    btn.innerHTML = '<span>Connecting...</span>';
-
-    try {
-      const result = await window.electronAPI.connect({
+      await window.electronAPI.connect({
         localPort: state.config.localPort,
         remotePort: state.config.remotePort,
         proxyType: state.config.proxyType
       });
-
       state.connected = true;
-      console.log('Connected:', result);
     } catch (err) {
-      console.error('Connect failed:', err);
-      alert('Failed to connect: ' + err.message);
+      // Retry after 2s
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 
-  btn.disabled = false;
+  state.autoConnecting = false;
+  updateConnectionUI();
+}
+
+// Toggle connection (manual disconnect only — connect is automatic)
+async function toggleConnection() {
+  if (!state.connected) {
+    // Manual connect attempt if auto-connect isn't running
+    autoConnect();
+    return;
+  }
+
+  // Disconnect
+  try {
+    await window.electronAPI.disconnect();
+    state.connected = false;
+  } catch (err) {
+    console.error('Disconnect failed:', err);
+  }
   updateConnectionUI();
 }
 
@@ -1173,9 +1494,15 @@ function updateConnectionUI() {
       <span>Disconnect</span>
     `;
     btn.classList.add('connected');
-    statusIndicator.classList.remove('disconnected', 'connecting');
-    statusIndicator.classList.add('connected');
+    btn.disabled = false;
+    statusIndicator.className = 'status-indicator connected';
     statusText.textContent = 'Online';
+  } else if (state.autoConnecting) {
+    btn.innerHTML = '<span>Connecting...</span>';
+    btn.classList.remove('connected');
+    btn.disabled = true;
+    statusIndicator.className = 'status-indicator connecting';
+    statusText.textContent = 'Connecting';
   } else {
     btn.innerHTML = `
       <svg viewBox="0 0 24 24" width="20" height="20">
@@ -1184,24 +1511,33 @@ function updateConnectionUI() {
       <span>Connect</span>
     `;
     btn.classList.remove('connected');
-    statusIndicator.classList.remove('connected', 'connecting');
-    statusIndicator.classList.add('disconnected');
+    btn.disabled = false;
+    statusIndicator.className = 'status-indicator disconnected';
     statusText.textContent = 'Offline';
   }
 }
 
-// Update device UI
+// Update device UI and trigger auto-connect when a device appears
 function updateDeviceUI() {
   const deviceInfo = elements.deviceInfo;
 
   if (state.devices.length === 0) {
     deviceInfo.innerHTML = '<span class="device-status">No device detected</span>';
+    // Device unplugged — reset connected state so auto-connect fires on next plug-in
+    if (state.connected) {
+      state.connected = false;
+      updateConnectionUI();
+    }
   } else {
     const device = state.devices[0];
     deviceInfo.innerHTML = `
       <span class="device-status connected">Device: ${device.id}</span>
       <span class="device-type">${device.type || 'USB'}</span>
     `;
+    // Auto-connect when device is detected and not yet connected
+    if (!state.connected && !state.autoConnecting) {
+      autoConnect();
+    }
   }
 }
 
