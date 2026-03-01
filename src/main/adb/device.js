@@ -157,8 +157,12 @@ After installation, ensure adb is in your PATH or restart the application.`);
         this.tracking = false;
       });
 
-      // Initial device list
+      // Initial device list - retry a few times as adb server may need a moment
       await this.updateDeviceList();
+      if (this.devices.length === 0) {
+        setTimeout(() => this.updateDeviceList(), 1000);
+        setTimeout(() => this.updateDeviceList(), 3000);
+      }
     } catch (err) {
       console.error('[ADB] Failed to start device tracking:', err.message);
       throw err;
@@ -171,6 +175,7 @@ After installation, ensure adb is in your PATH or restart the application.`);
   async updateDeviceList() {
     try {
       this.devices = await this.client.listDevices();
+      console.log(`[ADB] Device list updated: ${this.devices.length} device(s)`);
       this.emit('devices:updated', this.devices);
     } catch (err) {
       console.error('[ADB] Failed to list devices:', err.message);

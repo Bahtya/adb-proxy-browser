@@ -236,6 +236,24 @@ async function createWindow() {
   // Load the renderer
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
+  // Push device state to renderer after it loads (handles already-connected devices)
+  // Use a generous delay to ensure renderer's async init() has completed
+  mainWindow.webContents.on('did-finish-load', () => {
+    // Push at 1s and 3s to handle any timing variations
+    [1000, 3000].forEach(delay => {
+      setTimeout(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        const devices = connectionManager ? connectionManager.adbManager.getDevices() : [];
+        console.log(`[IPC] did-finish-load push (${delay}ms): devices=`, JSON.stringify(devices));
+        mainWindow.webContents.send('device:changed', devices);
+        if (connectionManager) {
+          const status = connectionManager.getStatus();
+          mainWindow.webContents.send('connection:statusChanged', status);
+        }
+      }, delay);
+    });
+  });
+
   // Show window when ready
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -258,6 +276,7 @@ function setupIpc() {
   // ADB: Get devices
   ipcMain.handle('adb:getDevices', async () => {
     const devices = connectionManager.adbManager.getDevices();
+    console.log('[IPC] getDevices called, returning:', devices.length, 'device(s)');
     return devices;
   });
 
@@ -467,13 +486,6 @@ app.whenReady().then(async () => {
   if (adbError && mainWindow) {
     mainWindow.webContents.send('adb:error', adbError);
   }
-
-  // Listen for device changes
-  connectionManager.adbManager.onDevicesUpdated(() => {
-    if (mainWindow) {
-      mainWindow.webContents.send('device:changed', connectionManager.adbManager.getDevices());
-    }
-  });
 });
 
 app.on('activate', () => {

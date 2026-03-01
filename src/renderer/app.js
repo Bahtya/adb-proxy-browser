@@ -157,7 +157,8 @@ class TabManager {
     // Create webview
     const webview = document.createElement('webview');
     webview.id = tabId;
-    webview.style.cssText = 'position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%;';
+    // Use only top/left/width/height to avoid conflict with right/bottom
+    webview.style.cssText = 'position: absolute; top: 0; left: 0; width: 100%; height: 100%;';
     webview.setAttribute('allowpopups', '');
 
     // Webview events
@@ -185,13 +186,22 @@ class TabManager {
         urlHistory.add(url, title);
       }
 
+      // Log the guest page's actual viewport size to diagnose layout issues
+      try {
+        webview.executeJavaScript(`
+          (window.innerWidth + 'x' + window.innerHeight + ' docW=' + document.documentElement.clientWidth + ' docH=' + document.documentElement.clientHeight)
+        `).then(result => {
+          console.log('[Guest viewport]', result, '| webview element:', webview.offsetWidth + 'x' + webview.offsetHeight);
+        }).catch(() => {});
+      } catch (e) {}
+
       // Force webview content to fill the container
       // This fixes the issue where webview guest page doesn't fill the element
       try {
         webview.executeJavaScript(`
           (function() {
             var style = document.createElement('style');
-            style.textContent = 'html, body { min-height: 100vh !important; height: auto !important; }';
+            style.textContent = 'html, body { min-height: 100% !important; height: auto !important; margin: 0 !important; padding: 0 !important; } body > * { min-height: auto !important; }';
             if (document.head) document.head.appendChild(style);
             else if (document.documentElement) document.documentElement.appendChild(style);
           })();
@@ -335,7 +345,33 @@ class TabManager {
       handleFindResult(e.result);
     });
 
-    // Insert webview before progress bar (which is first child)
+    // CRITICAL: Show browser view FIRST before any webview operations
+    // This ensures container has proper dimensions when we measure them
+    elements.welcomeScreen.style.display = 'none';
+    elements.browserWrapper.style.display = 'block';
+    elements.tabBar.style.display = 'flex';
+
+    // Hide other webviews and activate tab element
+    this.tabs.forEach((t) => {
+      t.webview.style.display = 'none';
+      t.element.classList.remove('active');
+    });
+    tabElement.classList.add('active');
+
+    // Measure container BEFORE inserting webview
+    const container = elements.browserContainer;
+    const containerWidth = container.clientWidth || window.innerWidth;
+    const containerHeight = container.clientHeight || (window.innerHeight - 80);
+    console.log(`[createTab] container measured: ${containerWidth}x${containerHeight}, window: ${window.innerWidth}x${window.innerHeight}`);
+
+    // Set explicit pixel dimensions BEFORE inserting into DOM.
+    // Also override the shadow DOM iframe style: the internal <iframe> uses
+    // flex:1 1 auto with no explicit height, so it falls back to 150px
+    // (Chromium's default replaced-element height) when the shadow host
+    // doesn't propagate its pixel height to the flex child properly.
+    webview.style.cssText = `position: absolute; top: 0; left: 0; width: ${containerWidth}px; height: ${containerHeight}px; display: block;`;
+
+    // Insert webview before progress bar
     const progressBarContainer = document.getElementById('progress-bar-container');
     elements.browserContainer.insertBefore(webview, progressBarContainer);
 
@@ -346,30 +382,23 @@ class TabManager {
       url: url
     });
 
-    // Switch to new tab first (this shows the browser wrapper)
-    this.switchTab(tabId);
+    this.activeTabId = tabId;
 
-    // Set explicit dimensions BEFORE loading URL (critical for proper webview sizing)
-    const container = elements.browserContainer;
-    if (container) {
-      webview.style.width = container.clientWidth + 'px';
-      webview.style.height = container.clientHeight + 'px';
+    // Fix the shadow DOM internal iframe height.
+    // Electron's webview shadow root contains: :host { display: flex }
+    // and an internal <iframe style="flex: 1 1 auto; width: 100%">.
+    // The iframe has NO explicit height, so Chromium uses 150px (the default
+    // replaced-element intrinsic height) when computing the guest viewport.
+    // We inject a style into the shadow root to force the iframe to 100% height.
+    if (webview.shadowRoot) {
+      const shadowStyle = document.createElement('style');
+      shadowStyle.textContent = ':host { display: block !important; } iframe { width: 100% !important; height: 100% !important; }';
+      webview.shadowRoot.appendChild(shadowStyle);
     }
 
-    // Load URL if provided - wait for webview to be ready
+    // Load URL directly.
     if (url && url !== 'about:blank') {
-      // Use dom-ready event to ensure webview is fully initialized
-      const loadUrl = () => {
-        if (webview.src !== url) {
-          webview.src = url;
-        }
-      };
-
-      // Try loading immediately, or wait for dom-ready
-      if (webview.isConnected) {
-        loadUrl();
-      }
-      webview.addEventListener('dom-ready', loadUrl, { once: true });
+      webview.src = url;
     }
 
     return tabId;
@@ -411,7 +440,12 @@ class TabManager {
       t.element.classList.remove('active');
     });
 
-    // Show selected webview
+    // Show selected webview with correct dimensions
+    const container = elements.browserContainer;
+    const w = container.clientWidth || window.innerWidth;
+    const h = container.clientHeight || (window.innerHeight - 80);
+    tab.webview.style.width = w + 'px';
+    tab.webview.style.height = h + 'px';
     tab.webview.style.display = 'block';
     tab.element.classList.add('active');
     this.activeTabId = tabId;
@@ -529,13 +563,7 @@ class TabManager {
   navigate(url) {
     const webview = this.getActiveWebview();
     if (webview) {
-      // Ensure webview has correct dimensions before loading
-      const container = elements.browserContainer;
-      if (container) {
-        webview.style.width = container.clientWidth + 'px';
-        webview.style.height = container.clientHeight + 'px';
-      }
-      webview.src = url;
+      webview.loadURL(url);
     }
   }
 
@@ -758,6 +786,7 @@ async function init() {
   // Get initial device list
   try {
     const devices = await window.electronAPI.getDevices();
+    console.log('[Init] Got devices:', JSON.stringify(devices));
     state.devices = devices;
     updateDeviceUI();
   } catch (err) {
@@ -847,7 +876,8 @@ function setupEventListeners() {
 
   // Listen for device changes
   window.electronAPI.onDeviceChanged((devices) => {
-    state.devices = devices;
+    console.log('[Renderer] device:changed received, count:', devices ? devices.length : 'null');
+    state.devices = devices || [];
     updateDeviceUI();
   });
 
@@ -1229,16 +1259,22 @@ async function saveSettings() {
 // Initialize on load
 document.addEventListener('DOMContentLoaded', init);
 
-// Handle window resize - force webview to recalculate size
+// Handle window resize - update all webview sizes
 window.addEventListener('resize', () => {
   const container = document.getElementById('browser-container');
   if (!container) return;
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  if (w <= 0 || h <= 0) return;
 
-  const webview = document.querySelector('webview');
-  if (webview && webview.style.display !== 'none') {
-    webview.style.width = container.clientWidth + 'px';
-    webview.style.height = container.clientHeight + 'px';
-  }
+  document.querySelectorAll('webview').forEach(webview => {
+    webview.style.width = w + 'px';
+    webview.style.height = h + 'px';
+    const guestId = webview.getWebContentsId();
+    if (guestId) {
+      window.electronAPI.webviewSetSize(guestId, w, h);
+    }
+  });
 });
 
 // ========== DEBUG MODE ==========
