@@ -120,13 +120,14 @@ class TabManager {
 
   createTab(url = 'about:blank') {
     const tabId = `tab-${++this.tabCounter}`;
+    const isNewTab = !url || url === 'about:blank';
 
     // Create tab item in tab bar
     const tabElement = document.createElement('button');
     tabElement.className = 'tab-item';
     tabElement.dataset.tabId = tabId;
     tabElement.innerHTML = `
-      <span class="tab-title">Loading...</span>
+      <span class="tab-title">${isNewTab ? 'New Tab' : 'Loading...'}</span>
       <button class="tab-close" title="Close tab">&times;</button>
     `;
 
@@ -367,11 +368,13 @@ class TabManager {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
 
-    // If only one tab, just navigate to blank
+    // If only one tab, close it and show welcome screen
     if (this.tabs.size === 1) {
-      tab.webview.src = 'about:blank';
-      this.updateTabTitle(tabId, 'New Tab');
-      elements.urlInput.value = '';
+      tab.element.remove();
+      tab.webview.remove();
+      this.tabs.delete(tabId);
+      this.activeTabId = null;
+      showWelcomeScreen();
       return;
     }
 
@@ -804,7 +807,13 @@ function setupEventListeners() {
 
   // New tab button
   elements.btnNewTab.addEventListener('click', () => {
-    tabManager.createTab();
+    if (tabManager.tabs.size === 0) {
+      // No tabs, show welcome screen
+      showWelcomeScreen();
+    } else {
+      // Create new tab (will show welcome content via about:blank handling)
+      tabManager.createTab();
+    }
   });
 
   // Connection
@@ -954,95 +963,14 @@ async function navigate(url) {
   // Show browser view
   showBrowserView();
 
-  // Simple direct webview creation
-  let webview = document.querySelector('webview');
-  if (!webview) {
-    const container = document.getElementById('browser-container');
-    webview = document.createElement('webview');
-    webview.id = 'main-webview';
-    webview.style.cssText = 'position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%;';
-    container.insertBefore(webview, container.firstChild);
-
-    webview.addEventListener('did-start-loading', () => {
-      elements.btnRefresh.classList.add('loading');
-      updateNavigationButtons(webview);
-    });
-
-    webview.addEventListener('did-stop-loading', () => {
-      elements.btnRefresh.classList.remove('loading');
-    });
-
-    webview.addEventListener('did-finish-load', () => {
-      const title = webview.getTitle() || 'Untitled';
-      document.title = title + ' - ADB Proxy Browser';
-      elements.urlInput.value = webview.getURL();
-      updateNavigationButtons(webview);
-      // Save to history
-      urlHistory.add(webview.getURL(), title);
-
-      // Inject script to handle target="_blank" links
-      // Since new-window event doesn't fire reliably in Electron 28, we use console message
-      webview.executeJavaScript(`
-        (function() {
-          if (window.__blankLinkHandler) {
-            document.removeEventListener('click', window.__blankLinkHandler, true);
-          }
-          window.__blankLinkHandler = function(e) {
-            var link = e.target.closest('a[target="_blank"]');
-            if (link && link.href) {
-              e.preventDefault();
-              e.stopPropagation();
-              e.stopImmediatePropagation();
-              console.log('__NEW_TAB__:' + link.href);
-              return false;
-            }
-          };
-          document.addEventListener('click', window.__blankLinkHandler, true);
-        })();
-      `).catch(() => {});
-    });
-
-    webview.addEventListener('did-fail-load', (e) => {
-      if (e.errorCode !== -3) { // Ignore aborted loads
-        console.error('Load failed:', e);
-      }
-    });
-
-    webview.addEventListener('did-navigate', (e) => {
-      elements.urlInput.value = e.url;
-      updateNavigationButtons(webview);
-    });
-
-    webview.addEventListener('did-navigate-in-page', (e) => {
-      if (e.isMainFrame) {
-        elements.urlInput.value = e.url;
-        updateNavigationButtons(webview);
-      }
-    });
-
-    webview.addEventListener('page-title-updated', (e) => {
-      document.title = e.title + ' - ADB Proxy Browser';
-    });
-
-    // Handle console messages for new-tab requests from injected script
-    webview.addEventListener('console-message', (e) => {
-      const message = e.message;
-      if (message.startsWith('__NEW_TAB__:')) {
-        const url = message.substring('__NEW_TAB__:'.length);
-        tabManager.createTab(url);
-      }
-    });
+  // Use TabManager for navigation
+  if (tabManager.tabs.size === 0) {
+    // No tabs exist, create first tab with URL
+    tabManager.createTab(url);
+  } else {
+    // Navigate in current tab
+    tabManager.navigate(url);
   }
-
-  // Set size before loading
-  const container = document.getElementById('browser-container');
-  if (container) {
-    webview.style.width = container.clientWidth + 'px';
-    webview.style.height = container.clientHeight + 'px';
-  }
-
-  // Load URL
-  webview.src = url;
 }
 
 // Show URL suggestions
