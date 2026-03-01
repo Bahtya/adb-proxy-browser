@@ -356,9 +356,20 @@ class TabManager {
       webview.style.height = container.clientHeight + 'px';
     }
 
-    // Load URL if provided
+    // Load URL if provided - wait for webview to be ready
     if (url && url !== 'about:blank') {
-      webview.src = url;
+      // Use dom-ready event to ensure webview is fully initialized
+      const loadUrl = () => {
+        if (webview.src !== url) {
+          webview.src = url;
+        }
+      };
+
+      // Try loading immediately, or wait for dom-ready
+      if (webview.isConnected) {
+        loadUrl();
+      }
+      webview.addEventListener('dom-ready', loadUrl, { once: true });
     }
 
     return tabId;
