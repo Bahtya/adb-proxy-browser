@@ -405,9 +405,14 @@ class TabManager {
     tab.element.classList.add('active');
     this.activeTabId = tabId;
 
-    // Update URL bar
+    // Update URL bar - only if webview has a URL loaded
     const url = tab.webview.getURL();
-    elements.urlInput.value = url || '';
+    if (url && url !== 'about:blank') {
+      elements.urlInput.value = url;
+    } else if (tab.url && tab.url !== 'about:blank') {
+      // Use stored URL if webview hasn't loaded yet
+      elements.urlInput.value = tab.url;
+    }
 
     // Update navigation buttons
     this.updateNavigationButtons(tab.webview);
