@@ -40,5 +40,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getHistory: () => ipcRenderer.invoke('history:getAll'),
   addHistory: (url, title) => ipcRenderer.invoke('history:add', url, title),
   searchHistory: (query) => ipcRenderer.invoke('history:search', query),
-  clearHistory: () => ipcRenderer.invoke('history:clear')
+  clearHistory: () => ipcRenderer.invoke('history:clear'),
+
+  // Bookmarks
+  getBookmarks: () => ipcRenderer.invoke('bookmarks:getAll'),
+  saveBookmarks: (bookmarks) => ipcRenderer.invoke('bookmarks:save', bookmarks)
 });

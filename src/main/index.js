@@ -150,6 +150,35 @@ let trayManager = null;
 const historyFile = path.join(app.getPath('userData'), 'url-history.json');
 const MAX_HISTORY_ITEMS = 100;
 
+// Bookmarks management
+const bookmarksFile = path.join(app.getPath('userData'), 'bookmarks.json');
+const DEFAULT_BOOKMARKS = [
+  { title: 'Google', url: 'https://www.google.com' },
+  { title: 'GitHub', url: 'https://github.com' },
+  { title: 'YouTube', url: 'https://www.youtube.com' },
+  { title: 'Wikipedia', url: 'https://www.wikipedia.org' }
+];
+
+function loadBookmarks() {
+  try {
+    if (fs.existsSync(bookmarksFile)) {
+      const data = fs.readFileSync(bookmarksFile, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('[Bookmarks] Failed to load:', err.message);
+  }
+  return DEFAULT_BOOKMARKS;
+}
+
+function saveBookmarks(bookmarks) {
+  try {
+    fs.writeFileSync(bookmarksFile, JSON.stringify(bookmarks, null, 2));
+  } catch (err) {
+    console.error('[Bookmarks] Failed to save:', err.message);
+  }
+}
+
 function loadHistory() {
   try {
     if (fs.existsSync(historyFile)) {
@@ -447,6 +476,17 @@ function setupIpc() {
   // History: Clear
   ipcMain.handle('history:clear', () => {
     clearHistory();
+    return true;
+  });
+
+  // Bookmarks: Get all
+  ipcMain.handle('bookmarks:getAll', () => {
+    return loadBookmarks();
+  });
+
+  // Bookmarks: Save
+  ipcMain.handle('bookmarks:save', (event, bookmarks) => {
+    saveBookmarks(bookmarks);
     return true;
   });
 

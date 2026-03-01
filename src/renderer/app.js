@@ -70,8 +70,6 @@ class URLHistory {
 
     try {
       this.history = await window.electronAPI.addHistory(url, title);
-      // Mirror to localStorage so the new-tab page can read recent history
-      localStorage.setItem('adb_browser_history', JSON.stringify(this.history.slice(0, 20)));
     } catch (e) {
       console.warn('Failed to add URL history:', e);
     }
@@ -97,16 +95,12 @@ class URLHistory {
 }
 
 // New Tab Page builder
-// Bookmarks are stored in localStorage as JSON array of {title, url, icon}
-function buildNewTabPage() {
-  const defaultBookmarks = [
-    { title: 'Google', url: 'https://www.google.com', icon: 'https://www.google.com/favicon.ico' },
-    { title: 'GitHub', url: 'https://github.com', icon: 'https://github.com/favicon.ico' },
-    { title: 'YouTube', url: 'https://www.youtube.com', icon: 'https://www.youtube.com/favicon.ico' },
-    { title: 'Twitter', url: 'https://twitter.com', icon: 'https://twitter.com/favicon.ico' },
-    { title: 'Reddit', url: 'https://www.reddit.com', icon: 'https://www.reddit.com/favicon.ico' },
-    { title: 'Wikipedia', url: 'https://www.wikipedia.org', icon: 'https://www.wikipedia.org/static/favicon/wikipedia.ico' }
-  ];
+// bookmarks: array of {title, url} injected at generation time (persisted in main process)
+// history: array of {title, url} injected at generation time
+// Navigation and saves are communicated back via console.log messages intercepted by the webview handler
+function buildNewTabPage(bookmarks, history) {
+  bookmarks = bookmarks || [];
+  history = (history || []).slice(0, 8);
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -211,17 +205,19 @@ function buildNewTabPage() {
 </div>
 
 <script>
-  const STORAGE_KEY = 'adb_browser_bookmarks';
-  const defaults = ${JSON.stringify(defaultBookmarks)};
-
-  function loadBookmarks() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || defaults; }
-    catch { return defaults; }
-  }
-  function saveBookmarks(bm) { localStorage.setItem(STORAGE_KEY, JSON.stringify(bm)); }
-
-  let bookmarks = loadBookmarks();
+  // Bookmarks injected at page-generation time — no localStorage needed
+  let bookmarks = ${JSON.stringify(bookmarks)};
   let editMode = false;
+
+  // Persist bookmarks: send to host app via console.log protocol
+  function persistBookmarks() {
+    console.log('__SAVE_BOOKMARKS__:' + JSON.stringify(bookmarks));
+  }
+
+  // Navigate: send URL to host app via console.log protocol
+  function navigate(url) {
+    console.log('__NAVIGATE__:' + url);
+  }
 
   function iconEl(url) {
     const domain = (() => { try { return new URL(url).origin; } catch { return ''; } })();
@@ -230,7 +226,7 @@ function buildNewTabPage() {
     img.onerror = () => {
       const d = document.createElement('div');
       d.className = 'favicon-err';
-      d.textContent = (new URL(url).hostname[0] || '?').toUpperCase();
+      try { d.textContent = (new URL(url).hostname[0] || '?').toUpperCase(); } catch { d.textContent = '?'; }
       img.replaceWith(d);
     };
     return img;
@@ -252,9 +248,16 @@ function buildNewTabPage() {
       const del = document.createElement('button');
       del.className = 'del';
       del.textContent = '×';
-      del.onclick = (e) => { e.stopPropagation(); bookmarks.splice(i, 1); saveBookmarks(bookmarks); renderBookmarks(); };
+      del.onclick = (e) => {
+        e.stopPropagation();
+        bookmarks.splice(i, 1);
+        persistBookmarks();
+        renderBookmarks();
+      };
       a.appendChild(del);
-      if (!editMode) a.onclick = () => window.open(bm.url, '_self');
+      if (!editMode) {
+        a.onclick = () => navigate(bm.url);
+      }
       grid.appendChild(a);
     });
     // Add button
@@ -278,7 +281,7 @@ function buildNewTabPage() {
     const url = document.getElementById('bm-url').value.trim();
     if (!url) return;
     bookmarks.push({ title: title || url, url });
-    saveBookmarks(bookmarks);
+    persistBookmarks();
     document.getElementById('add-modal').classList.remove('active');
     renderBookmarks();
   };
@@ -290,13 +293,12 @@ function buildNewTabPage() {
     renderBookmarks();
   };
 
-  // History from localStorage (written by host app via console messages)
+  // History injected at page-generation time
   function renderHistory() {
     const list = document.getElementById('history-list');
     list.innerHTML = '';
-    const raw = localStorage.getItem('adb_browser_history');
-    if (!raw) return;
-    const items = JSON.parse(raw).slice(0, 8);
+    const items = ${JSON.stringify(history)};
+    if (!items.length) return;
     items.forEach(item => {
       const a = document.createElement('div');
       a.className = 'history-item';
@@ -317,7 +319,7 @@ function buildNewTabPage() {
       info.appendChild(t);
       info.appendChild(u);
       a.appendChild(info);
-      a.onclick = () => window.open(item.url, '_self');
+      a.onclick = () => navigate(item.url);
       list.appendChild(a);
     });
   }
@@ -527,10 +529,27 @@ class TabManager {
     // Handle console messages for new-tab requests from injected script
     webview.addEventListener('console-message', (e) => {
       const message = e.message;
-      // Check for special new-tab message format
+      // New tab request from preload script
       if (message.startsWith('__NEW_TAB__:')) {
         const url = message.substring('__NEW_TAB__:'.length);
         this.createTab(url);
+        return;
+      }
+      // Navigate in current tab (from new-tab page bookmark/history clicks)
+      if (message.startsWith('__NAVIGATE__:')) {
+        const url = message.substring('__NAVIGATE__:'.length);
+        if (url) webview.src = url;
+        return;
+      }
+      // Save bookmarks from new-tab page
+      if (message.startsWith('__SAVE_BOOKMARKS__:')) {
+        const json = message.substring('__SAVE_BOOKMARKS__:'.length);
+        try {
+          const bookmarks = JSON.parse(json);
+          window.electronAPI.saveBookmarks(bookmarks);
+        } catch (err) {
+          console.error('[Bookmarks] Failed to parse:', err);
+        }
       }
     });
 
@@ -641,8 +660,14 @@ class TabManager {
     if (url && url !== 'about:blank') {
       webview.src = url;
     } else {
-      // Show the new-tab navigation page inside the webview
-      webview.src = `data:text/html;charset=utf-8,${encodeURIComponent(buildNewTabPage())}`;
+      // Show the new-tab navigation page: load bookmarks + history first, then build page
+      (async () => {
+        const [bookmarks, history] = await Promise.all([
+          window.electronAPI.getBookmarks().catch(() => []),
+          window.electronAPI.getHistory().catch(() => [])
+        ]);
+        webview.src = `data:text/html;charset=utf-8,${encodeURIComponent(buildNewTabPage(bookmarks, history))}`;
+      })();
     }
 
     return tabId;
@@ -1127,8 +1152,14 @@ function setupEventListeners() {
   elements.btnHome.addEventListener('click', () => {
     const webview = tabManager.getActiveWebview();
     if (webview) {
-      webview.src = `data:text/html;charset=utf-8,${encodeURIComponent(buildNewTabPage())}`;
       elements.urlInput.value = '';
+      (async () => {
+        const [bookmarks, history] = await Promise.all([
+          window.electronAPI.getBookmarks().catch(() => []),
+          window.electronAPI.getHistory().catch(() => [])
+        ]);
+        webview.src = `data:text/html;charset=utf-8,${encodeURIComponent(buildNewTabPage(bookmarks, history))}`;
+      })();
     }
   });
   elements.urlInput.addEventListener('keydown', (e) => {
