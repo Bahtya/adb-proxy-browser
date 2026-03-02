@@ -1,15 +1,105 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#e94560;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#533483;stop-opacity:1" />
+    <!-- AI Gradient - Purple/Blue -->
+    <linearGradient id="aiGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#818cf8"/>
+      <stop offset="100%" style="stop-color:#a78bfa"/>
     </linearGradient>
+    <!-- Android Green -->
+    <linearGradient id="androidGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4ade80"/>
+      <stop offset="100%" style="stop-color:#22c55e"/>
+    </linearGradient>
+    <!-- Glow effect -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <rect width="256" height="256" rx="40" fill="#1a1a2e"/>
-  <circle cx="128" cy="100" r="50" fill="url(#grad1)"/>
-  <rect x="118" y="140" width="20" height="60" rx="10" fill="url(#grad1)"/>
-  <circle cx="80" cy="180" r="15" fill="#4caf50"/>
-  <circle cx="176" cy="180" r="15" fill="#4caf50"/>
-  <path d="M60 60 L196 60" stroke="#a0a0a0" stroke-width="8" stroke-linecap="round"/>
-  <path d="M60 80 L160 80" stroke="#a0a0a0" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#0f0a1f"/>
+
+  <!-- Browser frame -->
+  <rect x="64" y="80" width="384" height="320" rx="32" fill="#1a1430" stroke="#2d2450" stroke-width="4"/>
+
+  <!-- Browser header bar -->
+  <rect x="64" y="80" width="384" height="56" rx="32" fill="#251e40"/>
+  <rect x="64" y="104" width="384" height="32" fill="#251e40"/>
+
+  <!-- Traffic light dots -->
+  <circle cx="108" cy="108" r="10" fill="#ff5f57"/>
+  <circle cx="140" cy="108" r="10" fill="#febc2e"/>
+  <circle cx="172" cy="108" r="10" fill="#28c840"/>
+
+  <!-- URL bar -->
+  <rect x="200" y="92" width="220" height="32" rx="16" fill="#1a1430"/>
+
+  <!-- AI Neural Network Brain -->
+  <g filter="url(#glow)">
+    <!-- Layer 1 - Input -->
+    <circle cx="144" cy="200" r="18" fill="url(#aiGradient)"/>
+    <circle cx="144" cy="280" r="18" fill="url(#aiGradient)"/>
+
+    <!-- Layer 2 - Hidden -->
+    <circle cx="224" cy="180" r="18" fill="url(#aiGradient)"/>
+    <circle cx="224" cy="240" r="18" fill="url(#aiGradient)"/>
+    <circle cx="224" cy="300" r="18" fill="url(#aiGradient)"/>
+
+    <!-- Layer 3 - Hidden -->
+    <circle cx="304" cy="180" r="18" fill="url(#aiGradient)"/>
+    <circle cx="304" cy="240" r="18" fill="url(#aiGradient)"/>
+    <circle cx="304" cy="300" r="18" fill="url(#aiGradient)"/>
+
+    <!-- Layer 4 - Output -->
+    <circle cx="384" cy="200" r="18" fill="url(#aiGradient)"/>
+    <circle cx="384" cy="280" r="18" fill="url(#aiGradient)"/>
+  </g>
+
+  <!-- Neural connections -->
+  <g stroke="#6366f1" stroke-width="2" opacity="0.5">
+    <!-- Layer 1 to 2 -->
+    <line x1="162" y1="200" x2="206" y2="180"/>
+    <line x1="162" y1="200" x2="206" y2="240"/>
+    <line x1="162" y1="280" x2="206" y2="240"/>
+    <line x1="162" y1="280" x2="206" y2="300"/>
+
+    <!-- Layer 2 to 3 -->
+    <line x1="242" y1="180" x2="286" y2="180"/>
+    <line x1="242" y1="180" x2="286" y2="240"/>
+    <line x1="242" y1="240" x2="286" y2="180"/>
+    <line x1="242" y1="240" x2="286" y2="240"/>
+    <line x1="242" y1="240" x2="286" y2="300"/>
+    <line x1="242" y1="300" x2="286" y2="240"/>
+    <line x1="242" y1="300" x2="286" y2="300"/>
+
+    <!-- Layer 3 to 4 -->
+    <line x1="322" y1="180" x2="366" y2="200"/>
+    <line x1="322" y1="240" x2="366" y2="200"/>
+    <line x1="322" y1="240" x2="366" y2="280"/>
+    <line x1="322" y1="300" x2="366" y2="280"/>
+  </g>
+
+  <!-- Proxy/Tunnel visualization -->
+  <g>
+    <!-- Tunnel path -->
+    <path d="M160 420 Q256 380 352 420" fill="none" stroke="url(#androidGradient)" stroke-width="8" stroke-linecap="round"/>
+
+    <!-- Data packets -->
+    <circle cx="192" cy="408" r="8" fill="#4ade80" opacity="0.9"/>
+    <circle cx="256" cy="392" r="8" fill="#4ade80" opacity="0.9"/>
+    <circle cx="320" cy="408" r="8" fill="#4ade80" opacity="0.9"/>
+
+    <!-- Arrows -->
+    <path d="M200 440 L256 460 L312 440" fill="none" stroke="#4ade80" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+  </g>
+
+  <!-- Android antenna accent -->
+  <g>
+    <path d="M248 40 L256 24 L264 40" fill="none" stroke="url(#androidGradient)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="256" cy="20" r="8" fill="url(#androidGradient)"/>
+  </g>
 </svg>
