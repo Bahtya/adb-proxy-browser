@@ -1,6 +1,6 @@
 {
   "name": "adb-proxy-browser",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "A customized browser that routes traffic through ADB tunnel to phone proxy (Clash)",
   "main": "src/main/index.js",
   "scripts": {
