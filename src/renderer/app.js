@@ -26,6 +26,8 @@ const elements = {
   settingsProxyPort: document.getElementById('settings-proxy-port'),
   settingsRemotePort: document.getElementById('settings-remote-port'),
   settingsProxyType: document.getElementById('settings-proxy-type'),
+  settingsSshPort: document.getElementById('settings-ssh-port'),
+  settingsSshRemotePort: document.getElementById('settings-ssh-remote-port'),
 
   // Views
   welcomeScreen: document.getElementById('welcome-screen'),
@@ -510,9 +512,13 @@ class TerminalManager {
       this.terminal.write('\r\n\x1b[90m📱 Step 1/3: Checking device connection...\x1b[0m\r\n');
       console.log('[Terminal] Step 1: Checking device connection');
 
+      // Get SSH settings
+      const sshLocalPort = parseInt(elements.settingsSshPort?.value || '8022', 10);
+      const sshRemotePort = parseInt(elements.settingsSshRemotePort?.value || '8022', 10);
+
       // Step 2: Create ADB forward
-      this.terminal.write('\x1b[90m🔌 Step 2/3: Creating ADB port forward (8022→22)...\x1b[0m\r\n');
-      console.log('[Terminal] Step 2: Creating ADB port forward');
+      this.terminal.write(`\x1b[90m🔌 Step 2/3: Creating ADB port forward (${sshLocalPort}→${sshRemotePort})...\x1b[0m\r\n`);
+      console.log(`[Terminal] Step 2: Creating ADB port forward (${sshLocalPort}→${sshRemotePort})`);
 
       // Step 3: Connect via SSH
       this.terminal.write('\x1b[90m🔐 Step 3/3: Establishing SSH connection...\x1b[0m\r\n');
@@ -522,7 +528,8 @@ class TerminalManager {
       await window.electronAPI.terminalConnect({
         username: credentials.username,
         password: credentials.password,
-        localPort: 8022
+        localPort: sshLocalPort,
+        remotePort: sshRemotePort
       });
 
       const elapsed = Date.now() - startTime;

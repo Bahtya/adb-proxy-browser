@@ -111,11 +111,12 @@ class AdbManager {
   }
 
   /**
-   * Create SSH port forward (local:8022 -> phone:22)
+   * Create SSH port forward (local:8022 -> phone:8022 by default for Termux)
    * @param {number} localPort - Local port (default: 8022)
    * @param {string} deviceId - Device ID (optional)
+   * @param {number} remotePort - Remote SSH port on phone (default: 8022 for Termux)
    */
-  async forwardSSH(localPort = 8022, deviceId = null) {
+  async forwardSSH(localPort = 8022, deviceId = null, remotePort = 8022) {
     if (!this.initialized) {
       throw new Error('ADB manager not initialized');
     }
@@ -128,8 +129,8 @@ class AdbManager {
       throw new Error('No device connected');
     }
 
-    // Forward local port to phone's SSH port (22)
-    return this.portForwarder.forward(device.id, localPort, 22);
+    // Forward local port to phone's SSH port (8022 for Termux by default)
+    return this.portForwarder.forward(device.id, localPort, remotePort);
   }
 
   /**

@@ -180,14 +180,51 @@ class TerminalManager {
     console.log('[Terminal] Device found:', device.id);
 
     // Create ADB forward for SSH
-    console.log(`[Terminal] Creating ADB forward: tcp:${localPort} -> tcp:22`);
+    // Termux sshd defaults to port 8022
+    const sshRemotePort = options.remotePort || 8022;
+    console.log(`[Terminal] Creating ADB forward: tcp:${localPort} -> tcp:${sshRemotePort}`);
     try {
-      await this.adbManager.forwardSSH(localPort, device.id);
+      await this.adbManager.forwardSSH(localPort, device.id, sshRemotePort);
       console.log('[Terminal] ADB forward created successfully');
     } catch (err) {
       console.error('[Terminal] Failed to create ADB forward:', err.message);
       throw new Error(`Failed to create ADB port forward: ${err.message}`);
     }
+
+    // Test TCP connection before SSH handshake
+    console.log('[Terminal] Testing TCP connection to 127.0.0.1:' + localPort);
+    const tcpTestResult = await new Promise((resolve) => {
+      const testSocket = new net.Socket();
+      const timeout = setTimeout(() => {
+        testSocket.destroy();
+        resolve({ success: false, error: 'timeout' });
+      }, 3000);
+
+      testSocket.on('connect', () => {
+        clearTimeout(timeout);
+        testSocket.destroy();
+        resolve({ success: true });
+      });
+
+      testSocket.on('error', (err) => {
+        clearTimeout(timeout);
+        resolve({ success: false, error: err.code || err.message });
+      });
+
+      testSocket.connect(localPort, '127.0.0.1');
+    });
+
+    if (!tcpTestResult.success) {
+      console.error('[Terminal] TCP test failed:', tcpTestResult.error);
+      // Clean up the forward since it's not working
+      try {
+        await this.adbManager.removeSSHForward(localPort);
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+      throw new Error(`Cannot reach SSH port ${localPort}. Make sure sshd is running in Termux (run: sshd). Error: ${tcpTestResult.error}`);
+    }
+    console.log('[Terminal] TCP connection test passed - port is reachable');
 
     // Connect via SSH
     console.log('[Terminal] Starting SSH connection to 127.0.0.1:' + localPort);
