@@ -117,11 +117,20 @@ class TerminalManager {
     if (this.terminal) return;
 
     // Use global xterm from script tags
-    const Terminal = window.Terminal;
-    const FitAddon = window.FitAddon;
+    // Terminal might be at window.Terminal or window.Terminal.Terminal
+    let Terminal = window.Terminal;
+    let FitAddon = window.FitAddon;
+
+    // Handle UMD module exports
+    if (Terminal && Terminal.Terminal) {
+      Terminal = Terminal.Terminal;
+    }
+    if (FitAddon && FitAddon.FitAddon) {
+      FitAddon = FitAddon.FitAddon;
+    }
 
     if (!Terminal || !FitAddon) {
-      console.error('xterm.js not loaded');
+      console.error('xterm.js not loaded', { Terminal, FitAddon });
       return;
     }
 
