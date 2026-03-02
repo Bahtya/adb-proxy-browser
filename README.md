@@ -35,6 +35,7 @@
 
 | Welcome Screen | Browser View | Terminal Panel |
 |:--------------:|:------------:|:--------------:|
+| ![Welcome Screen](img/WelcomeScreen.png) | ![Browser View](img/BrowserView.png) | ![Terminal Panel](img/TerminalPanel.png) |
 | *Device detection & connection* | *Full browser experience* | *SSH to Termux* |
 
 </div>
