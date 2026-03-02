@@ -64,10 +64,14 @@ class DeviceManager extends EventEmitter {
    * Initialize ADB client
    */
   async init() {
-    if (this.client) return;
+    if (this.client) {
+      console.log('[ADB] Already initialized, skipping');
+      return;
+    }
 
     // Find ADB
     this.adbPath = findAdbPath();
+    console.log('[ADB] Using ADB path:', this.adbPath);
 
     try {
       this.client = Adb.createClient({
@@ -75,14 +79,23 @@ class DeviceManager extends EventEmitter {
         host: '127.0.0.1', // Force IPv4
         port: 5037
       });
+      console.log('[ADB] ADB client created');
 
       // Try to start ADB server
+      console.log('[ADB] Starting ADB server...');
       await this.startAdbServer();
+      console.log('[ADB] ADB server started');
 
       // Start tracking devices
+      console.log('[ADB] Starting device tracking...');
       await this.startTracking();
+      console.log('[ADB] Device tracking started');
+
+      // Log initial device count
+      console.log('[ADB] Initial device count:', this.devices.length);
     } catch (err) {
       console.error('[ADB] Failed to initialize:', err.message);
+      console.error('[ADB] Stack trace:', err.stack);
       throw new Error(`ADB not found. Please install Android Platform Tools:
 
 Windows: Download from https://developer.android.com/studio/releases/platform-tools
@@ -99,12 +112,25 @@ After installation, ensure adb is in your PATH or restart the application.`);
     return new Promise((resolve, reject) => {
       const { spawn } = require('child_process');
       console.log('[ADB] Starting ADB server...');
+      console.log('[ADB] Using adb path:', this.adbPath);
 
+      let resolved = false;
       const adbProcess = spawn(this.adbPath, ['start-server'], {
         stdio: 'pipe'
       });
 
       let output = '';
+
+      // Handle spawn errors (e.g., ENOENT when adb not found)
+      adbProcess.on('error', (err) => {
+        console.error('[ADB] Spawn error:', err.message);
+        if (!resolved) {
+          resolved = true;
+          // Don't reject - server might already be running from another process
+          console.log('[ADB] Continuing anyway, server might be running from another process');
+          resolve();
+        }
+      });
 
       adbProcess.stdout.on('data', (data) => {
         output += data.toString();
@@ -115,18 +141,25 @@ After installation, ensure adb is in your PATH or restart the application.`);
       });
 
       adbProcess.on('close', (code) => {
+        if (resolved) return;
+        resolved = true;
         if (code === 0) {
           console.log('[ADB] Server started successfully');
           resolve();
         } else {
-          console.error('[ADB] Server start failed:', output);
-          reject(new Error('Failed to start ADB server'));
+          console.error('[ADB] Server start failed with code:', code, 'output:', output);
+          // Still resolve - server might already be running
+          resolve();
         }
       });
 
       // Timeout after 10 seconds
       setTimeout(() => {
-        resolve(); // Resolve anyway, server might already be running
+        if (!resolved) {
+          resolved = true;
+          console.log('[ADB] Server start timeout, assuming server is already running');
+          resolve();
+        }
       }, 10000);
     });
   }
