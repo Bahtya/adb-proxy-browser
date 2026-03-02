@@ -764,6 +764,85 @@ body {
   margin-bottom: 16px;
 }
 
+.setting-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 8px 0 12px;
+}
+
+/* Settings Modal Wide */
+.settings-modal-wide {
+  min-width: 480px;
+  max-width: 560px;
+}
+
+/* Environment Variable Copy Buttons */
+.env-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.env-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.env-copy-btn:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.env-copy-btn.copied {
+  background-color: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+
+.env-copy-btn .env-label {
+  font-weight: 500;
+}
+
+.env-copy-btn.env-copy-all {
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+}
+
+.env-copy-btn.env-copy-all:hover {
+  background-color: var(--accent-hover);
+}
+
+.env-preview {
+  background-color: #1e1e1e;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 8px;
+  display: none;
+}
+
+.env-preview.visible {
+  display: block;
+}
+
+.env-preview code {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  color: #4ec9b0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .modal-footer {
   padding: 16px 20px;
   border-top: 1px solid var(--border-color);

@@ -2137,12 +2137,19 @@ function updateSettingsUI() {
   elements.settingsProxyPort.value = state.config.localPort;
   elements.settingsRemotePort.value = state.config.remotePort;
   elements.settingsProxyType.value = state.config.proxyType;
+
+  // SSH settings
+  const sshPort = document.getElementById('settings-ssh-port');
+  const sshRemotePort = document.getElementById('settings-ssh-remote-port');
+  if (sshPort) sshPort.value = state.config.sshPort || 8022;
+  if (sshRemotePort) sshRemotePort.value = state.config.sshRemotePort || 22;
 }
 
 // Open settings modal
 function openSettings() {
   updateSettingsUI();
   elements.settingsModal.classList.add('active');
+  setupEnvCopyButtons();
 }
 
 // Close settings modal
@@ -2156,6 +2163,12 @@ async function saveSettings() {
   state.config.remotePort = parseInt(elements.settingsRemotePort.value) || 7890;
   state.config.proxyType = elements.settingsProxyType.value;
 
+  // SSH settings
+  const sshPort = document.getElementById('settings-ssh-port');
+  const sshRemotePort = document.getElementById('settings-ssh-remote-port');
+  if (sshPort) state.config.sshPort = parseInt(sshPort.value) || 8022;
+  if (sshRemotePort) state.config.sshRemotePort = parseInt(sshRemotePort.value) || 22;
+
   try {
     await window.electronAPI.setConfig(state.config);
     updateSettingsUI();
@@ -2163,6 +2176,81 @@ async function saveSettings() {
   } catch (err) {
     console.error('Failed to save settings:', err);
     alert('Failed to save settings: ' + err.message);
+  }
+}
+
+// Setup environment variable copy buttons
+function setupEnvCopyButtons() {
+  const port = state.config.localPort || 7890;
+  const proxyType = state.config.proxyType || 'http';
+  const proxyUrl = proxyType === 'socks5' ? `socks5://127.0.0.1:${port}` : `http://127.0.0.1:${port}`;
+
+  // PowerShell commands
+  const envCommands = {
+    http: `$env:HTTP_PROXY = "${proxyUrl}"`,
+    https: `$env:HTTPS_PROXY = "${proxyUrl}"`,
+    all: `$env:ALL_PROXY = "${proxyUrl}"`,
+    combined: `$env:HTTP_PROXY = "${proxyUrl}"\n$env:HTTPS_PROXY = "${proxyUrl}"\n$env:ALL_PROXY = "${proxyUrl}"`
+  };
+
+  // CMD commands (alternative)
+  const cmdCommands = {
+    http: `set HTTP_PROXY=${proxyUrl}`,
+    https: `set HTTPS_PROXY=${proxyUrl}`,
+    all: `set ALL_PROXY=${proxyUrl}`,
+    combined: `set HTTP_PROXY=${proxyUrl}\nset HTTPS_PROXY=${proxyUrl}\nset ALL_PROXY=${proxyUrl}`
+  };
+
+  const previewCode = document.getElementById('env-preview-code');
+  const previewContainer = document.getElementById('env-preview');
+
+  function showPreview(text) {
+    if (previewCode && previewContainer) {
+      previewCode.textContent = text;
+      previewContainer.classList.add('visible');
+    }
+  }
+
+  function copyToClipboard(text, button) {
+    navigator.clipboard.writeText(text).then(() => {
+      // Visual feedback
+      const originalLabel = button.querySelector('.env-label').textContent;
+      button.classList.add('copied');
+      button.querySelector('.env-label').textContent = 'Copied!';
+      showPreview(text);
+
+      setTimeout(() => {
+        button.classList.remove('copied');
+        button.querySelector('.env-label').textContent = originalLabel;
+      }, 1500);
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+      alert('Failed to copy to clipboard');
+    });
+  }
+
+  // HTTP_PROXY button
+  const httpBtn = document.getElementById('copy-env-http');
+  if (httpBtn) {
+    httpBtn.onclick = () => copyToClipboard(envCommands.http, httpBtn);
+  }
+
+  // HTTPS_PROXY button
+  const httpsBtn = document.getElementById('copy-env-https');
+  if (httpsBtn) {
+    httpsBtn.onclick = () => copyToClipboard(envCommands.https, httpsBtn);
+  }
+
+  // ALL_PROXY button
+  const allBtn = document.getElementById('copy-env-all');
+  if (allBtn) {
+    allBtn.onclick = () => copyToClipboard(envCommands.all, allBtn);
+  }
+
+  // Copy All button
+  const allCombinedBtn = document.getElementById('copy-env-all-combined');
+  if (allCombinedBtn) {
+    allCombinedBtn.onclick = () => copyToClipboard(envCommands.combined, allCombinedBtn);
   }
 }
 
