@@ -331,6 +331,14 @@ class TerminalManager {
         // Handle keyboard-interactive authentication
         authHandler: (methodsLeft, partialSuccess, callback) => {
           console.log('[Terminal] Auth handler called, methods:', methodsLeft, 'partial:', partialSuccess);
+
+          // methodsLeft can be null/undefined on first call
+          if (!methodsLeft) {
+            console.log('[Terminal] No methods specified, trying password auth');
+            callback(null, password);
+            return;
+          }
+
           if (methodsLeft.includes('keyboard-interactive')) {
             console.log('[Terminal] Using keyboard-interactive auth');
             callback(prompt => {
