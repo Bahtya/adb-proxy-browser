@@ -45,15 +45,9 @@ function findAdbPath() {
     }
   }
 
-  // Check if 'adb' is available in PATH by checking common locations
-  if (platform === 'win32') {
-    // On Windows, don't rely on PATH for built version
-    // Return null to indicate ADB not found
-    console.log('[ADB] ADB not found in any known location');
-    return null;
-  }
-
-  // Try to find in PATH for non-Windows platforms
+  // Fallback to 'adb' in PATH
+  // This works if adb is in system PATH
+  console.log('[ADB] ADB not found in known locations, trying system PATH');
   return 'adb';
 }
 
@@ -74,11 +68,6 @@ class DeviceManager extends EventEmitter {
 
     // Find ADB
     this.adbPath = findAdbPath();
-
-    // If ADB not found, throw error (will trigger download UI in renderer)
-    if (!this.adbPath) {
-      throw new Error('ADB_NOT_FOUND');
-    }
 
     try {
       this.client = Adb.createClient({
@@ -107,10 +96,6 @@ After installation, ensure adb is in your PATH or restart the application.`);
    * Start ADB server
    */
   async startAdbServer() {
-    if (!this.adbPath) {
-      return Promise.reject(new Error('ADB path not set'));
-    }
-
     return new Promise((resolve, reject) => {
       const { spawn } = require('child_process');
       console.log('[ADB] Starting ADB server...');
