@@ -25,34 +25,6 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      # Cache npm dependencies
-      - name: Cache npm dependencies
-        uses: actions/cache@v4
-        id: npm-cache
-        with:
-          path: |
-            ~/.npm
-            ${{ github.workspace }}/.npm
-          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-
-
-      # Cache Electron binaries
-      - name: Cache Electron binaries
-        uses: actions/cache@v4
-        id: electron-cache
-        with:
-          path: |
-            ~/.cache/electron
-            ~/.cache/electron-builder
-            ~/AppData/Local/electron/Cache
-            ~/AppData/Local/electron-builder/Cache
-            ~/Library/Caches/electron
-            ~/Library/Caches/electron-builder
-          key: ${{ runner.os }}-electron-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-
-
       # Cache node_modules for faster installs
       - name: Cache node_modules
         uses: actions/cache@v4
@@ -63,13 +35,47 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-modules-
 
+      # Cache Electron and electron-builder binaries
+      - name: Cache Electron binaries (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+            ~\AppData\Local\Cypress\Cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
+      - name: Cache Electron binaries (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
+      - name: Cache Electron binaries (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
       - name: Install dependencies
+        if: steps.modules-cache.outputs.cache-hit != 'true'
         run: npm ci --prefer-offline --no-audit --progress=false
         env:
           npm_config_fund: false
           npm_config_loglevel: error
-          # Use cached electron binaries
-          ELECTRON_BUILDER_BINARIES_CACHE: ${{ github.workspace }}/electron-cache
 
       - name: Build Electron app (Windows)
         if: matrix.os == 'windows-latest'
