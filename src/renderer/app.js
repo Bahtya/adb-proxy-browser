@@ -2055,10 +2055,6 @@ window.addEventListener('resize', () => {
   document.querySelectorAll('webview').forEach(webview => {
     webview.style.width = w + 'px';
     webview.style.height = h + 'px';
-    const guestId = webview.getWebContentsId();
-    if (guestId) {
-      window.electronAPI.webviewSetSize(guestId, w, h);
-    }
   });
 });
 
