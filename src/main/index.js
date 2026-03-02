@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { getAdbManager } = require('./adb');
 const TrayManager = require('./tray');
-const SSH2 = require('ssh2');
+const { Client: SSH2Client } = require('ssh2');
 
 // Single Instance Lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -192,7 +192,7 @@ class TerminalManager {
     // Connect via SSH
     console.log('[Terminal] Starting SSH connection to 127.0.0.1:' + localPort);
     return new Promise((resolve, reject) => {
-      const conn = new SSH2();
+      const conn = new SSH2Client();
       let resolved = false;
 
       conn.on('ready', () => {
