@@ -330,11 +330,21 @@ body {
 .main-content {
   flex: 1 1 auto;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   min-height: 0;
   height: 0;
   overflow: hidden;
   background-color: var(--bg-primary);
+}
+
+/* Content wrapper - contains welcome screen and browser */
+.content-wrapper {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* ========== WELCOME SCREEN (Minimal) ========== */
@@ -1042,24 +1052,15 @@ body {
 }
 
 /* ========== TERMINAL PANEL ========== */
-/* Split view layout when terminal is open */
-.app-container.terminal-open {
-  display: flex;
-  flex-direction: row;
-}
-
-.app-container.terminal-open > *:not(.terminal-panel):not(.main-content) {
-  /* Keep toolbar, tab-bar at normal width */
-}
-
-.app-container.terminal-open > .main-content {
+/* Split view layout when terminal is open - Chrome DevTools style */
+.main-content.terminal-open .content-wrapper {
   flex: 1;
   min-width: 0;
 }
 
 .terminal-panel {
-  width: 45%;
-  min-width: 320px;
+  width: 40%;
+  min-width: 300px;
   max-width: 600px;
   height: 100%;
   background-color: #1e1e1e;

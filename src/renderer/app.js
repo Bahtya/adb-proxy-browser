@@ -108,6 +108,49 @@ class TerminalManager {
     this.fitAddon = null;
     this.connected = false;
     this.credentials = null;
+    this.rememberCredentials = false;
+  }
+
+  /**
+   * Load saved credentials from localStorage
+   */
+  loadCredentials() {
+    try {
+      const saved = localStorage.getItem('terminal_credentials');
+      if (saved) {
+        const data = JSON.parse(saved);
+        this.rememberCredentials = true;
+        return data;
+      }
+    } catch (e) {
+      console.warn('[Terminal] Failed to load saved credentials:', e);
+    }
+    return null;
+  }
+
+  /**
+   * Save credentials to localStorage
+   */
+  saveCredentials(username, password) {
+    try {
+      localStorage.setItem('terminal_credentials', JSON.stringify({ username, password }));
+      console.log('[Terminal] Credentials saved');
+    } catch (e) {
+      console.warn('[Terminal] Failed to save credentials:', e);
+    }
+  }
+
+  /**
+   * Clear saved credentials
+   */
+  clearCredentials() {
+    try {
+      localStorage.removeItem('terminal_credentials');
+      this.rememberCredentials = false;
+      console.log('[Terminal] Credentials cleared');
+    } catch (e) {
+      console.warn('[Terminal] Failed to clear credentials:', e);
+    }
   }
 
   /**
@@ -253,6 +296,9 @@ class TerminalManager {
    * Prompt for credentials using a simple dialog
    */
   async promptCredentials() {
+    // Check for saved credentials first
+    const saved = this.loadCredentials();
+
     return new Promise((resolve) => {
       // Create a simple credential dialog
       const dialog = document.createElement('div');
@@ -263,11 +309,17 @@ class TerminalManager {
           <p>Enter your Termux SSH credentials</p>
           <div class="credential-field">
             <label>Username:</label>
-            <input type="text" id="ssh-username" value="" placeholder="Enter username">
+            <input type="text" id="ssh-username" value="${saved?.username || ''}" placeholder="Enter username">
           </div>
           <div class="credential-field">
             <label>Password:</label>
-            <input type="password" id="ssh-password" value="" placeholder="Enter password">
+            <input type="password" id="ssh-password" value="${saved?.password || ''}" placeholder="Enter password">
+          </div>
+          <div class="credential-checkbox">
+            <label>
+              <input type="checkbox" id="ssh-remember" ${saved ? 'checked' : ''}>
+              Remember credentials
+            </label>
           </div>
           <div class="credential-buttons">
             <button id="ssh-cancel" class="btn-cancel">Cancel</button>
@@ -361,12 +413,29 @@ class TerminalManager {
           font-size: 11px;
           color: #888;
         }
+        .credential-checkbox {
+          margin-bottom: 12px;
+        }
+        .credential-checkbox label {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 13px;
+          color: #666;
+          cursor: pointer;
+        }
+        .credential-checkbox input[type="checkbox"] {
+          width: 16px;
+          height: 16px;
+          cursor: pointer;
+        }
       `;
       document.head.appendChild(style);
       document.body.appendChild(dialog);
 
       const usernameInput = document.getElementById('ssh-username');
       const passwordInput = document.getElementById('ssh-password');
+      const rememberCheckbox = document.getElementById('ssh-remember');
       const cancelBtn = document.getElementById('ssh-cancel');
       const connectBtn = document.getElementById('ssh-connect');
 
@@ -383,8 +452,17 @@ class TerminalManager {
       connectBtn.onclick = () => {
         const username = usernameInput.value.trim();
         const password = passwordInput.value;
+        const remember = rememberCheckbox.checked;
+
+        // Save or clear credentials based on checkbox
+        if (remember) {
+          this.saveCredentials(username, password);
+        } else {
+          this.clearCredentials();
+        }
+
         cleanup();
-        resolve({ username, password });
+        resolve({ username, password, remember });
       };
 
       // Handle Enter key
@@ -407,38 +485,72 @@ class TerminalManager {
 
     // Clear terminal
     this.terminal.clear();
-    this.terminal.write('\x1b[36mConnecting to Termux via SSH...\x1b[0m\r\n');
+    this.terminal.write('\x1b[36m╔══════════════════════════════════════╗\x1b[0m\r\n');
+    this.terminal.write('\x1b[36m║   Connecting to Termux via SSH...   ║\x1b[0m\r\n');
+    this.terminal.write('\x1b[36m╚══════════════════════════════════════╝\x1b[0m\r\n');
+    console.log('[Terminal] Starting SSH connection process');
 
     // Prompt for credentials
     this.updateStatus('connecting');
+    this.terminal.write('\r\n\x1b[90m⏳ Waiting for credentials...\x1b[0m\r\n');
     const credentials = await this.promptCredentials();
 
     if (!credentials || !credentials.username || !credentials.password) {
-      this.terminal.write('\r\n\x1b[33mConnection cancelled\x1b[0m\r\n');
+      this.terminal.write('\r\n\x1b[33m⚠ Connection cancelled by user\x1b[0m\r\n');
       this.updateStatus('error', 'Cancelled');
+      console.log('[Terminal] Connection cancelled - no credentials provided');
       return false;
     }
 
     this.credentials = credentials;
+    console.log('[Terminal] Credentials received, username:', credentials.username);
 
     try {
-      this.terminal.write('\r\n\x1b[36mEstablishing SSH connection...\x1b[0m\r\n');
+      // Step 1: Check device
+      this.terminal.write('\r\n\x1b[90m📱 Step 1/3: Checking device connection...\x1b[0m\r\n');
+      console.log('[Terminal] Step 1: Checking device connection');
+
+      // Step 2: Create ADB forward
+      this.terminal.write('\x1b[90m🔌 Step 2/3: Creating ADB port forward (8022→22)...\x1b[0m\r\n');
+      console.log('[Terminal] Step 2: Creating ADB port forward');
+
+      // Step 3: Connect via SSH
+      this.terminal.write('\x1b[90m🔐 Step 3/3: Establishing SSH connection...\x1b[0m\r\n');
+      console.log('[Terminal] Step 3: Establishing SSH connection');
+
+      const startTime = Date.now();
       await window.electronAPI.terminalConnect({
         username: credentials.username,
         password: credentials.password,
         localPort: 8022
       });
 
+      const elapsed = Date.now() - startTime;
+      console.log('[Terminal] SSH connection established in', elapsed, 'ms');
+
       this.connected = true;
       this.updateStatus('connected');
-      this.terminal.write('\r\n\x1b[32mConnected!\x1b[0m\r\n');
+      this.terminal.write(`\r\n\x1b[32m✓ Connected successfully! (${elapsed}ms)\x1b[0m\r\n`);
+      this.terminal.write('\x1b[90m────────────────────────────────────────\x1b[0m\r\n\r\n');
 
       // Fit terminal after connection
       this.fit();
 
       return true;
     } catch (err) {
-      this.terminal.write(`\r\n\x1b[31mConnection failed: ${err.message}\x1b[0m\r\n`);
+      const elapsed = Date.now() - (this._connectStartTime || Date.now());
+      console.error('[Terminal] Connection failed after', elapsed, 'ms:', err.message);
+      console.error('[Terminal] Error details:', err);
+
+      this.terminal.write(`\r\n\x1b[31m✗ Connection failed!\x1b[0m\r\n`);
+      this.terminal.write(`\x1b[31m  Error: ${err.message}\x1b[0m\r\n`);
+      this.terminal.write('\r\n\x1b[33mTroubleshooting tips:\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m  1. Make sure sshd is running in Termux (run: sshd)\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m  2. Check username with: whoami\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m  3. Reset password with: passwd\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m  4. Verify device is connected (check main app)\x1b[0m\r\n');
+      this.terminal.write('\x1b[90m────────────────────────────────────────\x1b[0m\r\n');
+
       this.updateStatus('error', 'Failed');
       return false;
     }
@@ -467,8 +579,8 @@ class TerminalManager {
   async show() {
     elements.terminalPanel.classList.remove('hidden');
     elements.btnTerminal.classList.add('active');
-    // Add class to app-container for split view layout
-    document.querySelector('.app-container').classList.add('terminal-open');
+    // Add class to main-content for Chrome DevTools-like split view
+    document.querySelector('.main-content').classList.add('terminal-open');
 
     // Fit terminal after showing
     setTimeout(() => this.fit(), 100);
@@ -485,8 +597,8 @@ class TerminalManager {
   hide() {
     elements.terminalPanel.classList.add('hidden');
     elements.btnTerminal.classList.remove('active');
-    // Remove class from app-container
-    document.querySelector('.app-container').classList.remove('terminal-open');
+    // Remove class from main-content
+    document.querySelector('.main-content').classList.remove('terminal-open');
   }
 
   /**

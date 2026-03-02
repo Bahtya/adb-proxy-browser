@@ -157,7 +157,10 @@ class TerminalManager {
    * Connect to Termux via SSH
    */
   async connect(options = {}) {
+    console.log('[Terminal] connect() called with options:', { ...options, password: '***' });
+
     if (this.connected) {
+      console.log('[Terminal] Already connected, disconnecting first');
       await this.disconnect();
     }
 
@@ -168,37 +171,53 @@ class TerminalManager {
     this.sshLocalPort = localPort;
 
     // Check for device
+    console.log('[Terminal] Checking for connected device...');
     const device = this.adbManager.getFirstDevice();
     if (!device) {
-      throw new Error('No device connected');
+      console.error('[Terminal] No device connected');
+      throw new Error('No device connected. Please connect your phone and try again.');
     }
+    console.log('[Terminal] Device found:', device.id);
 
     // Create ADB forward for SSH
     console.log(`[Terminal] Creating ADB forward: tcp:${localPort} -> tcp:22`);
-    await this.adbManager.forwardSSH(localPort, device.id);
+    try {
+      await this.adbManager.forwardSSH(localPort, device.id);
+      console.log('[Terminal] ADB forward created successfully');
+    } catch (err) {
+      console.error('[Terminal] Failed to create ADB forward:', err.message);
+      throw new Error(`Failed to create ADB port forward: ${err.message}`);
+    }
 
     // Connect via SSH
+    console.log('[Terminal] Starting SSH connection to 127.0.0.1:' + localPort);
     return new Promise((resolve, reject) => {
       const conn = new SSH2();
+      let resolved = false;
 
       conn.on('ready', () => {
-        console.log('[Terminal] SSH connection ready');
+        console.log('[Terminal] SSH connection ready - authentication successful');
 
         // Request PTY and shell
+        console.log('[Terminal] Requesting PTY shell...');
         conn.shell({
           term: 'xterm-256color',
           cols: 80,
           rows: 24
         }, (err, stream) => {
           if (err) {
+            console.error('[Terminal] Failed to create shell:', err.message);
             conn.end();
-            reject(new Error(`Failed to create shell: ${err.message}`));
+            if (!resolved) {
+              resolved = true;
+              reject(new Error(`Failed to create shell: ${err.message}`));
+            }
             return;
           }
 
           this.sshStream = stream;
           this.connected = true;
-          console.log('[Terminal] Shell created, connected');
+          console.log('[Terminal] Shell created successfully - terminal ready');
 
           // Handle stream events
           stream.on('data', (data) => {
@@ -220,14 +239,35 @@ class TerminalManager {
             console.log('[Terminal] STDERR:', data.toString());
           });
 
-          resolve({ success: true });
+          if (!resolved) {
+            resolved = true;
+            resolve({ success: true });
+          }
         });
       });
 
       conn.on('error', (err) => {
-        console.error('[Terminal] SSH error:', err.message);
+        console.error('[Terminal] SSH connection error:', err.message);
+        console.error('[Terminal] Error level:', err.level);
+        console.error('[Terminal] Error code:', err.code);
         this.connected = false;
-        reject(new Error(`SSH error: ${err.message}`));
+
+        // Provide more helpful error messages
+        let errorMsg = err.message;
+        if (err.message.includes('ECONNREFUSED')) {
+          errorMsg = 'Connection refused. Make sure sshd is running in Termux (run: sshd)';
+        } else if (err.message.includes('ETIMEDOUT') || err.message.includes('Timed out')) {
+          errorMsg = 'Connection timed out. Check if sshd is running on port 22';
+        } else if (err.message.includes('Authentication')) {
+          errorMsg = 'Authentication failed. Check username and password';
+        } else if (err.message.includes('Host key')) {
+          errorMsg = 'Host key verification failed';
+        }
+
+        if (!resolved) {
+          resolved = true;
+          reject(new Error(errorMsg));
+        }
       });
 
       conn.on('close', () => {
@@ -241,26 +281,44 @@ class TerminalManager {
       this.sshConnection = conn;
 
       // Connect with keyboard-interactive auth (Termux default)
+      console.log('[Terminal] Initiating SSH connection...');
+      console.log('[Terminal] Username:', username);
+      console.log('[Terminal] Auth method: keyboard-interactive/password');
+
       conn.connect({
         host: '127.0.0.1',
         port: localPort,
         username: username,
         tryKeyboard: true,
-        readyTimeout: 10000,
+        readyTimeout: 15000,
         // Handle keyboard-interactive authentication
         authHandler: (methodsLeft, partialSuccess, callback) => {
+          console.log('[Terminal] Auth handler called, methods:', methodsLeft, 'partial:', partialSuccess);
           if (methodsLeft.includes('keyboard-interactive')) {
+            console.log('[Terminal] Using keyboard-interactive auth');
             callback(prompt => {
               // For Termux, we just return the password
               return [password];
             });
           } else if (methodsLeft.includes('password')) {
+            console.log('[Terminal] Using password auth');
             callback(null, password);
           } else {
-            callback(new Error('No supported auth method'));
+            console.error('[Terminal] No supported auth method, available:', methodsLeft);
+            callback(new Error('No supported authentication method'));
           }
         }
       });
+
+      // Add timeout for connection
+      setTimeout(() => {
+        if (!resolved) {
+          console.error('[Terminal] Connection timeout after 15 seconds');
+          resolved = true;
+          conn.end();
+          reject(new Error('Connection timeout - check if sshd is running on your phone'));
+        }
+      }, 16000);
     });
   }
 
