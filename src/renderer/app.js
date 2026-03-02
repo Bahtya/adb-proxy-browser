@@ -642,6 +642,9 @@ function setupTerminalResize() {
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
+    // Prevent flex from overriding our width
+    panel.style.setProperty('flex-shrink', '0', 'important');
+
     e.preventDefault();
   });
 
@@ -649,11 +652,13 @@ function setupTerminalResize() {
     if (!isDragging) return;
 
     const deltaX = startX - e.clientX;
-    const newWidth = Math.max(300, Math.min(800, startWidth + deltaX));
+    const newWidth = Math.max(250, Math.min(window.innerWidth * 0.8, startWidth + deltaX));
 
-    panel.style.width = newWidth + 'px';
-    panel.style.minWidth = newWidth + 'px';
-    panel.style.maxWidth = newWidth + 'px';
+    // Use setProperty with priority to override CSS
+    panel.style.setProperty('width', newWidth + 'px', 'important');
+    panel.style.setProperty('min-width', newWidth + 'px', 'important');
+    panel.style.setProperty('max-width', newWidth + 'px', 'important');
+    panel.style.setProperty('flex-shrink', '0', 'important');
 
     // Trigger terminal fit
     if (terminalManager.terminal) {
@@ -676,10 +681,11 @@ function setupTerminalResize() {
   // Restore saved width
   const savedWidth = localStorage.getItem('terminal-width');
   if (savedWidth) {
-    const width = Math.max(300, Math.min(800, parseInt(savedWidth, 10)));
-    panel.style.width = width + 'px';
-    panel.style.minWidth = width + 'px';
-    panel.style.maxWidth = width + 'px';
+    const width = Math.max(250, Math.min(window.innerWidth * 0.8, parseInt(savedWidth, 10)));
+    panel.style.setProperty('width', width + 'px', 'important');
+    panel.style.setProperty('min-width', width + 'px', 'important');
+    panel.style.setProperty('max-width', width + 'px', 'important');
+    panel.style.setProperty('flex-shrink', '0', 'important');
   }
 }
 
