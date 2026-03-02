@@ -317,42 +317,25 @@ class TerminalManager {
       // Store connection
       this.sshConnection = conn;
 
-      // Connect with keyboard-interactive auth (Termux default)
+      // Connect with password and keyboard-interactive support
       console.log('[Terminal] Initiating SSH connection...');
       console.log('[Terminal] Username:', username);
-      console.log('[Terminal] Auth method: keyboard-interactive/password');
+      console.log('[Terminal] Auth method: password/keyboard-interactive');
+
+      // Handle keyboard-interactive auth
+      conn.on('keyboard-interactive', (name, instructions, instructionsLang, prompts, finish) => {
+        console.log('[Terminal] Keyboard-interactive auth:', name || '(no name)');
+        // Answer all prompts with the password
+        finish(prompts.map(() => password));
+      });
 
       conn.connect({
         host: '127.0.0.1',
         port: localPort,
         username: username,
+        password: password,
         tryKeyboard: true,
-        readyTimeout: 15000,
-        // Handle keyboard-interactive authentication
-        authHandler: (methodsLeft, partialSuccess, callback) => {
-          console.log('[Terminal] Auth handler called, methods:', methodsLeft, 'partial:', partialSuccess);
-
-          // methodsLeft can be null/undefined on first call
-          if (!methodsLeft) {
-            console.log('[Terminal] No methods specified, trying password auth');
-            callback(null, password);
-            return;
-          }
-
-          if (methodsLeft.includes('keyboard-interactive')) {
-            console.log('[Terminal] Using keyboard-interactive auth');
-            callback(prompt => {
-              // For Termux, we just return the password
-              return [password];
-            });
-          } else if (methodsLeft.includes('password')) {
-            console.log('[Terminal] Using password auth');
-            callback(null, password);
-          } else {
-            console.error('[Terminal] No supported auth method, available:', methodsLeft);
-            callback(new Error('No supported authentication method'));
-          }
-        }
+        readyTimeout: 15000
       });
 
       // Add timeout for connection
