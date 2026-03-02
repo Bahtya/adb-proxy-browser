@@ -256,15 +256,34 @@ class TerminalManager {
           this.connected = true;
           console.log('[Terminal] Shell created successfully - terminal ready');
 
-          // Handle stream events
+          // Buffer for data throttling
+          let dataBuffer = '';
+          let dataFlushTimeout = null;
+
+          const flushData = () => {
+            if (dataBuffer && mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('terminal:data', dataBuffer);
+              dataBuffer = '';
+            }
+            dataFlushTimeout = null;
+          };
+
+          // Handle stream events with buffering
           stream.on('data', (data) => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('terminal:data', data.toString('utf8'));
+            dataBuffer += data.toString('utf8');
+            // Throttle data sends to max 60fps
+            if (!dataFlushTimeout) {
+              dataFlushTimeout = setTimeout(flushData, 16);
             }
           });
 
           stream.on('close', () => {
             console.log('[Terminal] Stream closed');
+            // Flush any remaining data
+            if (dataFlushTimeout) {
+              clearTimeout(dataFlushTimeout);
+              flushData();
+            }
             this.connected = false;
             this.sshStream = null;
             if (mainWindow && !mainWindow.isDestroyed()) {
