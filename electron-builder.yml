@@ -6,9 +6,7 @@ files:
   - src/**/*
   - assets/**/*
   - package.json
-icon: assets/icon.svg
 win:
-  icon: assets/icon.svg
   target:
     - target: zip
       arch:
@@ -17,14 +15,12 @@ win:
       arch:
         - x64
 mac:
-  icon: assets/icon.svg
   target:
     - target: zip
       arch:
         - x64
         - arm64
 linux:
-  icon: assets/icon.svg
   target:
     - target: AppImage
       arch:
