@@ -55,7 +55,8 @@ const elements = {
   terminalPanel: document.getElementById('terminal-panel'),
   terminalContainer: document.getElementById('terminal-container'),
   terminalStatus: document.getElementById('terminal-status'),
-  btnCloseTerminal: document.getElementById('btn-close-terminal')
+  btnCloseTerminal: document.getElementById('btn-close-terminal'),
+  terminalResizeHandle: document.getElementById('terminal-resize-handle')
 };
 
 // URL History Manager (uses main process for persistence)
@@ -585,6 +586,7 @@ class TerminalManager {
    */
   async show() {
     elements.terminalPanel.classList.remove('hidden');
+    elements.terminalResizeHandle.classList.remove('hidden');
     elements.btnTerminal.classList.add('active');
     // Add class to main-content for Chrome DevTools-like split view
     document.querySelector('.main-content').classList.add('terminal-open');
@@ -603,6 +605,7 @@ class TerminalManager {
    */
   hide() {
     elements.terminalPanel.classList.add('hidden');
+    elements.terminalResizeHandle.classList.add('hidden');
     elements.btnTerminal.classList.remove('active');
     // Remove class from main-content
     document.querySelector('.main-content').classList.remove('terminal-open');
@@ -617,6 +620,66 @@ class TerminalManager {
     } else {
       this.hide();
     }
+  }
+}
+
+// Setup terminal resize handle drag functionality
+function setupTerminalResize() {
+  const handle = elements.terminalResizeHandle;
+  const panel = elements.terminalPanel;
+  const mainContent = document.querySelector('.main-content');
+
+  let isDragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  handle.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startWidth = panel.offsetWidth;
+
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+
+    const deltaX = startX - e.clientX;
+    const newWidth = Math.max(300, Math.min(800, startWidth + deltaX));
+
+    panel.style.width = newWidth + 'px';
+    panel.style.minWidth = newWidth + 'px';
+    panel.style.maxWidth = newWidth + 'px';
+
+    // Trigger terminal fit
+    if (terminalManager.terminal) {
+      terminalManager.fit();
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      handle.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      // Save width preference
+      localStorage.setItem('terminal-width', panel.offsetWidth);
+    }
+  });
+
+  // Restore saved width
+  const savedWidth = localStorage.getItem('terminal-width');
+  if (savedWidth) {
+    const width = Math.max(300, Math.min(800, parseInt(savedWidth, 10)));
+    panel.style.width = width + 'px';
+    panel.style.minWidth = width + 'px';
+    panel.style.maxWidth = width + 'px';
   }
 }
 
@@ -1584,6 +1647,9 @@ let currentSuggestions = [];
 
 // Initialize
 async function init() {
+  // Setup terminal resize handle
+  setupTerminalResize();
+
   // Listen for ADB errors
   window.electronAPI.onAdbError((error) => {
     state.adbError = error;
