@@ -1042,19 +1042,31 @@ body {
 }
 
 /* ========== TERMINAL PANEL ========== */
+/* Split view layout when terminal is open */
+.app-container.terminal-open {
+  display: flex;
+  flex-direction: row;
+}
+
+.app-container.terminal-open > *:not(.terminal-panel):not(.main-content) {
+  /* Keep toolbar, tab-bar at normal width */
+}
+
+.app-container.terminal-open > .main-content {
+  flex: 1;
+  min-width: 0;
+}
+
 .terminal-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  width: 50%;
-  min-width: 400px;
-  height: 100vh;
+  width: 45%;
+  min-width: 320px;
+  max-width: 600px;
+  height: 100%;
   background-color: #1e1e1e;
   border-left: 1px solid var(--border-color);
-  z-index: 2000;
   display: flex;
   flex-direction: column;
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.2);
+  flex-shrink: 0;
 }
 
 .terminal-panel.hidden {

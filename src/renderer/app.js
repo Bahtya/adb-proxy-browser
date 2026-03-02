@@ -458,6 +458,8 @@ class TerminalManager {
   async show() {
     elements.terminalPanel.classList.remove('hidden');
     elements.btnTerminal.classList.add('active');
+    // Add class to app-container for split view layout
+    document.querySelector('.app-container').classList.add('terminal-open');
 
     // Fit terminal after showing
     setTimeout(() => this.fit(), 100);
@@ -474,6 +476,8 @@ class TerminalManager {
   hide() {
     elements.terminalPanel.classList.add('hidden');
     elements.btnTerminal.classList.remove('active');
+    // Remove class from app-container
+    document.querySelector('.app-container').classList.remove('terminal-open');
   }
 
   /**

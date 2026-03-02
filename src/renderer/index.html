@@ -165,21 +165,21 @@
         </div>
       </div>
     </main>
-  </div>
 
-  <!-- Terminal Panel -->
-  <div id="terminal-panel" class="terminal-panel hidden">
-    <div class="terminal-header">
-      <span class="terminal-title">
-        <svg viewBox="0 0 24 24" width="14" height="14" style="vertical-align: middle; margin-right: 6px;">
-          <path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4-4 4z"/>
-        </svg>
-        Termux Terminal
-      </span>
-      <div class="terminal-status" id="terminal-status"></div>
-      <button id="btn-close-terminal" class="btn-close-terminal" title="Close terminal" aria-label="Close terminal">&times;</button>
+    <!-- Terminal Panel (inside app-container for split view) -->
+    <div id="terminal-panel" class="terminal-panel hidden">
+      <div class="terminal-header">
+        <span class="terminal-title">
+          <svg viewBox="0 0 24 24" width="14" height="14" style="vertical-align: middle; margin-right: 6px;">
+            <path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4-4 4z"/>
+          </svg>
+          Termux Terminal
+        </span>
+        <div class="terminal-status" id="terminal-status"></div>
+        <button id="btn-close-terminal" class="btn-close-terminal" title="Close terminal" aria-label="Close terminal">&times;</button>
+      </div>
+      <div id="terminal-container" class="terminal-container"></div>
     </div>
-    <div id="terminal-container" class="terminal-container"></div>
   </div>
 
   <!-- Settings Modal -->
