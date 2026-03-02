@@ -2149,7 +2149,7 @@ function updateSettingsUI() {
   const sshPort = document.getElementById('settings-ssh-port');
   const sshRemotePort = document.getElementById('settings-ssh-remote-port');
   if (sshPort) sshPort.value = state.config.sshPort || 8022;
-  if (sshRemotePort) sshRemotePort.value = state.config.sshRemotePort || 22;
+  if (sshRemotePort) sshRemotePort.value = state.config.sshRemotePort || 8022;
 }
 
 // Open settings modal
@@ -2174,7 +2174,7 @@ async function saveSettings() {
   const sshPort = document.getElementById('settings-ssh-port');
   const sshRemotePort = document.getElementById('settings-ssh-remote-port');
   if (sshPort) state.config.sshPort = parseInt(sshPort.value) || 8022;
-  if (sshRemotePort) state.config.sshRemotePort = parseInt(sshRemotePort.value) || 22;
+  if (sshRemotePort) state.config.sshRemotePort = parseInt(sshRemotePort.value) || 8022;
 
   try {
     await window.electronAPI.setConfig(state.config);
