@@ -44,5 +44,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Bookmarks
   getBookmarks: () => ipcRenderer.invoke('bookmarks:getAll'),
-  saveBookmarks: (bookmarks) => ipcRenderer.invoke('bookmarks:save', bookmarks)
+  saveBookmarks: (bookmarks) => ipcRenderer.invoke('bookmarks:save', bookmarks),
+
+  // Terminal
+  terminalConnect: (options) => ipcRenderer.invoke('terminal:connect', options),
+  terminalWrite: (data) => ipcRenderer.invoke('terminal:write', data),
+  terminalResize: (cols, rows) => ipcRenderer.invoke('terminal:resize', cols, rows),
+  terminalDisconnect: () => ipcRenderer.invoke('terminal:disconnect'),
+  onTerminalData: (callback) => ipcRenderer.on('terminal:data', (event, data) => callback(data)),
+  onTerminalClose: (callback) => ipcRenderer.on('terminal:close', (event, data) => callback(data))
 });

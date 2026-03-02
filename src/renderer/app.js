@@ -46,7 +46,14 @@ const elements = {
   findClose: document.getElementById('find-close'),
 
   // Progress Bar
-  progressBar: document.getElementById('progress-bar')
+  progressBar: document.getElementById('progress-bar'),
+
+  // Terminal
+  btnTerminal: document.getElementById('btn-terminal'),
+  terminalPanel: document.getElementById('terminal-panel'),
+  terminalContainer: document.getElementById('terminal-container'),
+  terminalStatus: document.getElementById('terminal-status'),
+  btnCloseTerminal: document.getElementById('btn-close-terminal')
 };
 
 // URL History Manager (uses main process for persistence)
@@ -90,6 +97,393 @@ class URLHistory {
       this.history = [];
     } catch (e) {
       console.warn('Failed to clear URL history:', e);
+    }
+  }
+}
+
+// Terminal Manager - xterm.js SSH to Termux
+class TerminalManager {
+  constructor() {
+    this.terminal = null;
+    this.fitAddon = null;
+    this.connected = false;
+    this.credentials = null;
+  }
+
+  /**
+   * Initialize xterm.js terminal
+   */
+  async init() {
+    if (this.terminal) return;
+
+    // Use global xterm from script tags
+    const Terminal = window.Terminal;
+    const FitAddon = window.FitAddon;
+
+    if (!Terminal || !FitAddon) {
+      console.error('xterm.js not loaded');
+      return;
+    }
+
+    // Create terminal instance
+    this.terminal = new Terminal({
+      theme: {
+        background: '#1e1e1e',
+        foreground: '#cccccc',
+        cursor: '#ffffff',
+        cursorAccent: '#1e1e1e',
+        selectionBackground: '#264f78',
+        black: '#000000',
+        red: '#cd3131',
+        green: '#0dbc79',
+        yellow: '#e5e510',
+        blue: '#2472c8',
+        magenta: '#bc3fbc',
+        cyan: '#11a8cd',
+        white: '#e5e5e5',
+        brightBlack: '#666666',
+        brightRed: '#f14c4c',
+        brightGreen: '#23d18b',
+        brightYellow: '#f5f543',
+        brightBlue: '#3b8eea',
+        brightMagenta: '#d670d6',
+        brightCyan: '#29b8db',
+        brightWhite: '#e5e5e5'
+      },
+      fontFamily: 'Consolas, "Courier New", monospace',
+      fontSize: 14,
+      lineHeight: 1.2,
+      cursorBlink: true,
+      cursorStyle: 'block',
+      allowProposedApi: true
+    });
+
+    // Create fit addon
+    this.fitAddon = new FitAddon();
+    this.terminal.loadAddon(this.fitAddon);
+
+    // Open terminal in container
+    this.terminal.open(elements.terminalContainer);
+
+    // Fit to container
+    setTimeout(() => this.fit(), 100);
+
+    // Handle input
+    this.terminal.onData((data) => {
+      if (this.connected) {
+        window.electronAPI.terminalWrite(data);
+      }
+    });
+
+    // Handle resize
+    this.terminal.onResize(({ cols, rows }) => {
+      if (this.connected) {
+        window.electronAPI.terminalResize(cols, rows);
+      }
+    });
+
+    // Listen for data from main process
+    window.electronAPI.onTerminalData((data) => {
+      if (this.terminal) {
+        this.terminal.write(data);
+      }
+    });
+
+    // Listen for close event
+    window.electronAPI.onTerminalClose((data) => {
+      this.connected = false;
+      this.updateStatus('disconnected');
+      this.terminal.write('\r\n\x1b[33m[Connection closed]\x1b[0m\r\n');
+    });
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      this.fit();
+    });
+  }
+
+  /**
+   * Fit terminal to container
+   */
+  fit() {
+    if (this.terminal && this.fitAddon) {
+      try {
+        this.fitAddon.fit();
+      } catch (e) {
+        console.warn('Failed to fit terminal:', e);
+      }
+    }
+  }
+
+  /**
+   * Update status indicator
+   */
+  updateStatus(status, message = '') {
+    const statusEl = elements.terminalStatus;
+    statusEl.className = 'terminal-status';
+
+    switch (status) {
+      case 'connecting':
+        statusEl.classList.add('connecting');
+        statusEl.textContent = 'Connecting...';
+        break;
+      case 'connected':
+        statusEl.classList.add('connected');
+        statusEl.textContent = 'Connected';
+        break;
+      case 'error':
+        statusEl.classList.add('error');
+        statusEl.textContent = message || 'Error';
+        break;
+      default:
+        statusEl.textContent = '';
+    }
+  }
+
+  /**
+   * Prompt for credentials using a simple dialog
+   */
+  async promptCredentials() {
+    return new Promise((resolve) => {
+      // Create a simple credential dialog
+      const dialog = document.createElement('div');
+      dialog.className = 'terminal-credential-dialog';
+      dialog.innerHTML = `
+        <div class="terminal-credential-content">
+          <h3>SSH Credentials</h3>
+          <p>Enter your Termux SSH credentials</p>
+          <div class="credential-field">
+            <label>Username:</label>
+            <input type="text" id="ssh-username" value="" placeholder="Enter username">
+          </div>
+          <div class="credential-field">
+            <label>Password:</label>
+            <input type="password" id="ssh-password" value="" placeholder="Enter password">
+          </div>
+          <div class="credential-buttons">
+            <button id="ssh-cancel" class="btn-cancel">Cancel</button>
+            <button id="ssh-connect" class="btn-connect">Connect</button>
+          </div>
+          <p class="credential-hint">Make sure sshd is running on your phone (run "sshd" in Termux)</p>
+        </div>
+      `;
+
+      // Add styles
+      const style = document.createElement('style');
+      style.textContent = `
+        .terminal-credential-dialog {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 3000;
+        }
+        .terminal-credential-content {
+          background: #fff;
+          padding: 24px;
+          border-radius: 8px;
+          min-width: 320px;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+        }
+        .terminal-credential-content h3 {
+          margin: 0 0 8px;
+          font-size: 16px;
+        }
+        .terminal-credential-content p {
+          margin: 0 0 16px;
+          color: #666;
+          font-size: 13px;
+        }
+        .credential-field {
+          margin-bottom: 12px;
+        }
+        .credential-field label {
+          display: block;
+          font-size: 12px;
+          color: #666;
+          margin-bottom: 4px;
+        }
+        .credential-field input {
+          width: 100%;
+          padding: 8px 12px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-size: 14px;
+        }
+        .credential-field input:focus {
+          outline: none;
+          border-color: #1a73e8;
+        }
+        .credential-buttons {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          margin-top: 16px;
+        }
+        .credential-buttons button {
+          padding: 8px 16px;
+          border-radius: 4px;
+          font-size: 14px;
+          cursor: pointer;
+        }
+        .btn-cancel {
+          background: #fff;
+          border: 1px solid #ddd;
+          color: #666;
+        }
+        .btn-cancel:hover {
+          background: #f5f5f5;
+        }
+        .btn-connect {
+          background: #1a73e8;
+          border: none;
+          color: #fff;
+        }
+        .btn-connect:hover {
+          background: #1557b0;
+        }
+        .credential-hint {
+          margin-top: 12px;
+          font-size: 11px;
+          color: #888;
+        }
+      `;
+      document.head.appendChild(style);
+      document.body.appendChild(dialog);
+
+      const usernameInput = document.getElementById('ssh-username');
+      const passwordInput = document.getElementById('ssh-password');
+      const cancelBtn = document.getElementById('ssh-cancel');
+      const connectBtn = document.getElementById('ssh-connect');
+
+      const cleanup = () => {
+        document.body.removeChild(dialog);
+        document.head.removeChild(style);
+      };
+
+      cancelBtn.onclick = () => {
+        cleanup();
+        resolve(null);
+      };
+
+      connectBtn.onclick = () => {
+        const username = usernameInput.value.trim();
+        const password = passwordInput.value;
+        cleanup();
+        resolve({ username, password });
+      };
+
+      // Handle Enter key
+      passwordInput.onkeypress = (e) => {
+        if (e.key === 'Enter') {
+          connectBtn.click();
+        }
+      };
+
+      // Focus username input
+      usernameInput.focus();
+    });
+  }
+
+  /**
+   * Connect to SSH
+   */
+  async connect() {
+    await this.init();
+
+    // Clear terminal
+    this.terminal.clear();
+    this.terminal.write('\x1b[36mConnecting to Termux via SSH...\x1b[0m\r\n');
+
+    // Prompt for credentials
+    this.updateStatus('connecting');
+    const credentials = await this.promptCredentials();
+
+    if (!credentials || !credentials.username || !credentials.password) {
+      this.terminal.write('\r\n\x1b[33mConnection cancelled\x1b[0m\r\n');
+      this.updateStatus('error', 'Cancelled');
+      return false;
+    }
+
+    this.credentials = credentials;
+
+    try {
+      this.terminal.write('\r\n\x1b[36mEstablishing SSH connection...\x1b[0m\r\n');
+      await window.electronAPI.terminalConnect({
+        username: credentials.username,
+        password: credentials.password,
+        localPort: 8022
+      });
+
+      this.connected = true;
+      this.updateStatus('connected');
+      this.terminal.write('\r\n\x1b[32mConnected!\x1b[0m\r\n');
+
+      // Fit terminal after connection
+      this.fit();
+
+      return true;
+    } catch (err) {
+      this.terminal.write(`\r\n\x1b[31mConnection failed: ${err.message}\x1b[0m\r\n`);
+      this.updateStatus('error', 'Failed');
+      return false;
+    }
+  }
+
+  /**
+   * Disconnect from SSH
+   */
+  async disconnect() {
+    if (!this.connected) return;
+
+    try {
+      await window.electronAPI.terminalDisconnect();
+    } catch (err) {
+      console.warn('Disconnect error:', err);
+    }
+
+    this.connected = false;
+    this.updateStatus('disconnected');
+    this.terminal.write('\r\n\x1b[33mDisconnected\x1b[0m\r\n');
+  }
+
+  /**
+   * Show terminal panel
+   */
+  async show() {
+    elements.terminalPanel.classList.remove('hidden');
+    elements.btnTerminal.classList.add('active');
+
+    // Fit terminal after showing
+    setTimeout(() => this.fit(), 100);
+
+    // Auto-connect if not connected
+    if (!this.connected) {
+      await this.connect();
+    }
+  }
+
+  /**
+   * Hide terminal panel
+   */
+  hide() {
+    elements.terminalPanel.classList.add('hidden');
+    elements.btnTerminal.classList.remove('active');
+  }
+
+  /**
+   * Toggle terminal panel
+   */
+  async toggle() {
+    if (elements.terminalPanel.classList.contains('hidden')) {
+      await this.show();
+    } else {
+      this.hide();
     }
   }
 }
@@ -1032,6 +1426,9 @@ window.tabManager = tabManager; // Expose for testing
 // URL history instance
 const urlHistory = new URLHistory();
 
+// Terminal manager instance
+const terminalManager = new TerminalManager();
+
 // Autocomplete state
 let selectedSuggestionIndex = -1;
 let currentSuggestions = [];
@@ -1218,6 +1615,10 @@ function setupEventListeners() {
   elements.btnSettings.addEventListener('click', openSettings);
   elements.btnCloseSettings.addEventListener('click', closeSettings);
   elements.btnSaveSettings.addEventListener('click', saveSettings);
+
+  // Terminal
+  elements.btnTerminal.addEventListener('click', () => terminalManager.toggle());
+  elements.btnCloseTerminal.addEventListener('click', () => terminalManager.hide());
 
   // Settings change listeners
   elements.proxyPort.addEventListener('change', updateConfig);

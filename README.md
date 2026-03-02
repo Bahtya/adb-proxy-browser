@@ -8,6 +8,7 @@ A customized Electron browser that routes traffic through an ADB tunnel to your 
 - One-click connection to phone's proxy
 - Built-in browser with tab support
 - SOCKS5 and HTTP proxy protocols
+- **Terminal panel with SSH to Termux** - access your phone's shell directly
 - System tray integration
 - Cross-platform: Windows, macOS, Linux
 
@@ -58,6 +59,72 @@ npm run build:win  # build Windows installer
 3. Launch ADB Proxy Browser
 4. Click **Connect Phone** on the welcome screen
 5. Type a URL in the address bar and press Enter
+
+---
+
+## Terminal (SSH to Termux)
+
+The app includes a built-in terminal that connects to your phone's Termux via SSH. This allows you to run shell commands on your phone directly from the app.
+
+### Setup Termux SSH Server
+
+1. **Install Termux** from [F-Droid](https://f-droid.org/packages/com.termux/) (recommended) or Google Play
+
+2. **Install OpenSSH** in Termux:
+   ```bash
+   pkg update
+   pkg install openssh
+   ```
+
+3. **Set a password** for SSH authentication:
+   ```bash
+   passwd
+   ```
+   Enter a password you'll remember - you'll need it to connect.
+
+4. **Find your username** (you'll need this too):
+   ```bash
+   whoami
+   ```
+   Usually it's `u0_aXXX` or just the username you set up.
+
+5. **Start the SSH server**:
+   ```bash
+   sshd
+   ```
+   The server runs on port 22 by default.
+
+6. **(Optional) Auto-start sshd** on Termux launch:
+   ```bash
+   echo 'sshd' >> ~/.bashrc
+   ```
+
+### Connect from ADB Proxy Browser
+
+1. Make sure your phone is connected via USB and Termux is running with `sshd` active
+2. Click the **Terminal** button (terminal icon) in the toolbar
+3. Enter your Termux **username** and **password** when prompted
+4. You'll be connected to a Termux shell!
+
+### Connection Architecture
+
+```
+xterm.js (renderer) → IPC → Main Process → SSH2 → ADB Tunnel (8022→22) → Termux sshd
+```
+
+### Troubleshooting Terminal
+
+**Connection refused**
+- Make sure `sshd` is running in Termux
+- Check if port 22 is available (run `netstat -tlnp` in Termux)
+
+**Authentication failed**
+- Verify your username with `whoami`
+- Reset password with `passwd`
+
+**Terminal not responding**
+- Close and reopen the terminal panel
+- Check ADB connection status
 
 ---
 

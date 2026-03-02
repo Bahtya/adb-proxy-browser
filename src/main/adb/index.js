@@ -111,6 +111,45 @@ class AdbManager {
   }
 
   /**
+   * Create SSH port forward (local:8022 -> phone:22)
+   * @param {number} localPort - Local port (default: 8022)
+   * @param {string} deviceId - Device ID (optional)
+   */
+  async forwardSSH(localPort = 8022, deviceId = null) {
+    if (!this.initialized) {
+      throw new Error('ADB manager not initialized');
+    }
+
+    const device = deviceId
+      ? this.deviceManager.getDeviceById(deviceId)
+      : this.deviceManager.getFirstDevice();
+
+    if (!device) {
+      throw new Error('No device connected');
+    }
+
+    // Forward local port to phone's SSH port (22)
+    return this.portForwarder.forward(device.id, localPort, 22);
+  }
+
+  /**
+   * Remove SSH port forward
+   * @param {number} localPort - Local port (default: 8022)
+   * @param {string} deviceId - Device ID (optional)
+   */
+  async removeSSHForward(localPort = 8022, deviceId = null) {
+    if (!this.initialized) return;
+
+    const device = deviceId
+      ? this.deviceManager.getDeviceById(deviceId)
+      : this.deviceManager.getFirstDevice();
+
+    if (device) {
+      await this.portForwarder.removeForward(device.id, localPort);
+    }
+  }
+
+  /**
    * Subscribe to device events
    */
   onDeviceConnected(callback) {

@@ -1010,3 +1010,133 @@ body {
     width: 100%;
   }
 }
+
+/* ========== TERMINAL BUTTON ========== */
+.btn-terminal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.btn-terminal:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-terminal.active {
+  background-color: var(--accent-primary);
+  color: white;
+}
+
+.btn-terminal:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ========== TERMINAL PANEL ========== */
+.terminal-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 50%;
+  min-width: 400px;
+  height: 100vh;
+  background-color: #1e1e1e;
+  border-left: 1px solid var(--border-color);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.2);
+}
+
+.terminal-panel.hidden {
+  display: none;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #2d2d2d;
+  border-bottom: 1px solid #3c3c3c;
+  min-height: 36px;
+}
+
+.terminal-title {
+  flex: 1;
+  color: #cccccc;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+}
+
+.terminal-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-right: 8px;
+}
+
+.terminal-status.connecting {
+  background-color: var(--warning);
+  color: #000;
+}
+
+.terminal-status.connected {
+  background-color: var(--success);
+  color: #fff;
+}
+
+.terminal-status.error {
+  background-color: var(--error);
+  color: #fff;
+}
+
+.btn-close-terminal {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: var(--transition);
+}
+
+.btn-close-terminal:hover {
+  background-color: #3c3c3c;
+  color: #fff;
+}
+
+.terminal-container {
+  flex: 1;
+  padding: 8px;
+  overflow: hidden;
+  background-color: #1e1e1e;
+}
+
+.terminal-container .xterm {
+  height: 100%;
+  padding: 4px;
+}
+
+.terminal-container .xterm-viewport {
+  background-color: #1e1e1e !important;
+}
+
+.terminal-container .xterm-screen {
+  background-color: #1e1e1e;
+}

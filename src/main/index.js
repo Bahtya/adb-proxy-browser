@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, dialog } = require('electron');
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
 const { getAdbManager } = require('./adb');
 const TrayManager = require('./tray');
+const SSH2 = require('ssh2');
 
 // Single Instance Lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -141,10 +142,196 @@ class ConnectionManager {
   }
 }
 
+// Terminal Manager - SSH connection to Termux
+class TerminalManager {
+  constructor(adbManager) {
+    this.adbManager = adbManager;
+    this.sshConnection = null;
+    this.sshStream = null;
+    this.sshLocalPort = 8022;
+    this.connected = false;
+    this.credentials = null;
+  }
+
+  /**
+   * Connect to Termux via SSH
+   */
+  async connect(options = {}) {
+    if (this.connected) {
+      await this.disconnect();
+    }
+
+    const { username, password, localPort = 8022 } = options;
+
+    // Store credentials for reconnect
+    this.credentials = { username, password };
+    this.sshLocalPort = localPort;
+
+    // Check for device
+    const device = this.adbManager.getFirstDevice();
+    if (!device) {
+      throw new Error('No device connected');
+    }
+
+    // Create ADB forward for SSH
+    console.log(`[Terminal] Creating ADB forward: tcp:${localPort} -> tcp:22`);
+    await this.adbManager.forwardSSH(localPort, device.id);
+
+    // Connect via SSH
+    return new Promise((resolve, reject) => {
+      const conn = new SSH2();
+
+      conn.on('ready', () => {
+        console.log('[Terminal] SSH connection ready');
+
+        // Request PTY and shell
+        conn.shell({
+          term: 'xterm-256color',
+          cols: 80,
+          rows: 24
+        }, (err, stream) => {
+          if (err) {
+            conn.end();
+            reject(new Error(`Failed to create shell: ${err.message}`));
+            return;
+          }
+
+          this.sshStream = stream;
+          this.connected = true;
+          console.log('[Terminal] Shell created, connected');
+
+          // Handle stream events
+          stream.on('data', (data) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('terminal:data', data.toString('utf8'));
+            }
+          });
+
+          stream.on('close', () => {
+            console.log('[Terminal] Stream closed');
+            this.connected = false;
+            this.sshStream = null;
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('terminal:close', { reason: 'Stream closed' });
+            }
+          });
+
+          stream.stderr.on('data', (data) => {
+            console.log('[Terminal] STDERR:', data.toString());
+          });
+
+          resolve({ success: true });
+        });
+      });
+
+      conn.on('error', (err) => {
+        console.error('[Terminal] SSH error:', err.message);
+        this.connected = false;
+        reject(new Error(`SSH error: ${err.message}`));
+      });
+
+      conn.on('close', () => {
+        console.log('[Terminal] SSH connection closed');
+        this.connected = false;
+        this.sshStream = null;
+        this.sshConnection = null;
+      });
+
+      // Store connection
+      this.sshConnection = conn;
+
+      // Connect with keyboard-interactive auth (Termux default)
+      conn.connect({
+        host: '127.0.0.1',
+        port: localPort,
+        username: username,
+        tryKeyboard: true,
+        readyTimeout: 10000,
+        // Handle keyboard-interactive authentication
+        authHandler: (methodsLeft, partialSuccess, callback) => {
+          if (methodsLeft.includes('keyboard-interactive')) {
+            callback(prompt => {
+              // For Termux, we just return the password
+              return [password];
+            });
+          } else if (methodsLeft.includes('password')) {
+            callback(null, password);
+          } else {
+            callback(new Error('No supported auth method'));
+          }
+        }
+      });
+    });
+  }
+
+  /**
+   * Write data to SSH stream
+   */
+  async write(data) {
+    if (!this.connected || !this.sshStream) {
+      throw new Error('Not connected');
+    }
+
+    this.sshStream.write(data);
+    return true;
+  }
+
+  /**
+   * Resize terminal
+   */
+  async resize(cols, rows) {
+    if (!this.connected || !this.sshStream) {
+      return false;
+    }
+
+    if (this.sshStream.setWindow) {
+      this.sshStream.setWindow(rows, cols, 480, 640);
+    }
+    return true;
+  }
+
+  /**
+   * Disconnect SSH and remove ADB forward
+   */
+  async disconnect() {
+    if (this.sshStream) {
+      this.sshStream.close();
+      this.sshStream = null;
+    }
+
+    if (this.sshConnection) {
+      this.sshConnection.end();
+      this.sshConnection = null;
+    }
+
+    // Remove ADB forward
+    try {
+      await this.adbManager.removeSSHForward(this.sshLocalPort);
+    } catch (err) {
+      console.error('[Terminal] Failed to remove SSH forward:', err.message);
+    }
+
+    this.connected = false;
+    console.log('[Terminal] Disconnected');
+    return true;
+  }
+
+  /**
+   * Get connection status
+   */
+  getStatus() {
+    return {
+      connected: this.connected,
+      localPort: this.sshLocalPort
+    };
+  }
+}
+
 // Main application
 let mainWindow = null;
 let connectionManager = null;
 let trayManager = null;
+let terminalManager = null;
 
 // History management
 const historyFile = path.join(app.getPath('userData'), 'url-history.json');
@@ -524,6 +711,60 @@ function setupIpc() {
       socket.connect(port, '127.0.0.1');
     });
   });
+
+  // Terminal: Connect
+  ipcMain.handle('terminal:connect', async (event, options) => {
+    try {
+      // Prompt for credentials if not provided
+      if (!options.username || !options.password) {
+        const result = await dialog.showMessageBox(mainWindow, {
+          type: 'question',
+          buttons: ['Cancel'],
+          title: 'SSH Credentials Required',
+          message: 'Please provide SSH credentials for Termux',
+          detail: 'Make sure sshd is running on your phone (run "sshd" in Termux).\n\nUse the username you set in Termux and the password you configured.'
+        });
+
+        // For now, return error - credentials should be provided from renderer
+        throw new Error('SSH credentials required');
+      }
+
+      return await terminalManager.connect(options);
+    } catch (err) {
+      console.error('[IPC] Terminal connect error:', err.message);
+      throw err;
+    }
+  });
+
+  // Terminal: Write
+  ipcMain.handle('terminal:write', async (event, data) => {
+    try {
+      return await terminalManager.write(data);
+    } catch (err) {
+      console.error('[IPC] Terminal write error:', err.message);
+      throw err;
+    }
+  });
+
+  // Terminal: Resize
+  ipcMain.handle('terminal:resize', async (event, cols, rows) => {
+    try {
+      return await terminalManager.resize(cols, rows);
+    } catch (err) {
+      console.error('[IPC] Terminal resize error:', err.message);
+      throw err;
+    }
+  });
+
+  // Terminal: Disconnect
+  ipcMain.handle('terminal:disconnect', async () => {
+    try {
+      return await terminalManager.disconnect();
+    } catch (err) {
+      console.error('[IPC] Terminal disconnect error:', err.message);
+      throw err;
+    }
+  });
 }
 
 // Set proxy for browser window
@@ -551,6 +792,8 @@ app.whenReady().then(async () => {
   let adbError = null;
   try {
     await connectionManager.init();
+    // Initialize terminal manager
+    terminalManager = new TerminalManager(connectionManager.adbManager);
   } catch (err) {
     console.error('[App] Failed to initialize connection manager:', err.message);
     adbError = err.message;

@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self' https: http:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self' https: http:">
   <title>ADB Proxy Browser</title>
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -47,6 +48,13 @@
           <span class="status-indicator disconnected"></span>
           <span class="status-text">Offline</span>
         </div>
+
+        <!-- Terminal Button -->
+        <button id="btn-terminal" class="btn-terminal" title="Terminal (SSH to Termux)" aria-label="Open terminal">
+          <svg viewBox="0 0 24 24" width="18" height="18">
+            <path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4-4 4z"/>
+          </svg>
+        </button>
 
         <!-- Settings Button -->
         <button id="btn-settings" class="btn-settings" title="Settings" aria-label="Settings">
@@ -159,6 +167,21 @@
     </main>
   </div>
 
+  <!-- Terminal Panel -->
+  <div id="terminal-panel" class="terminal-panel hidden">
+    <div class="terminal-header">
+      <span class="terminal-title">
+        <svg viewBox="0 0 24 24" width="14" height="14" style="vertical-align: middle; margin-right: 6px;">
+          <path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4-4 4z"/>
+        </svg>
+        Termux Terminal
+      </span>
+      <div class="terminal-status" id="terminal-status"></div>
+      <button id="btn-close-terminal" class="btn-close-terminal" title="Close terminal" aria-label="Close terminal">&times;</button>
+    </div>
+    <div id="terminal-container" class="terminal-container"></div>
+  </div>
+
   <!-- Settings Modal -->
   <div id="settings-modal" class="modal">
     <div class="modal-content">
@@ -196,6 +219,8 @@
     </div>
   </div>
 
+  <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
