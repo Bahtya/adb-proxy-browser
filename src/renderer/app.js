@@ -1023,7 +1023,13 @@ class TabManager {
     // flex:1 1 auto with no explicit height, so it falls back to 150px
     // (Chromium's default replaced-element height) when the shadow host
     // doesn't propagate its pixel height to the flex child properly.
-    webview.style.cssText = `position: absolute; top: 0; left: 0; width: ${containerWidth}px; height: ${containerHeight}px; display: block;`;
+    // Set z-index to 10 to ensure active webview is on top.
+    webview.style.cssText = `position: absolute; top: 0; left: 0; width: ${containerWidth}px; height: ${containerHeight}px; display: block; z-index: 10;`;
+
+    // Reset z-index of all other webviews to 1
+    this.tabs.forEach((t) => {
+      t.webview.style.zIndex = '1';
+    });
 
     // Insert webview before progress bar
     const progressBarContainer = document.getElementById('progress-bar-container');
@@ -1095,23 +1101,34 @@ class TabManager {
 
   switchTab(tabId) {
     const tab = this.tabs.get(tabId);
-    if (!tab) return;
+    if (!tab) {
+      console.warn('[switchTab] Tab not found:', tabId);
+      return;
+    }
 
-    // Hide all webviews
-    this.tabs.forEach((t) => {
+    console.log('[switchTab] Switching to tab:', tabId, 'current active:', this.activeTabId);
+
+    // Hide all webviews and reset z-index
+    this.tabs.forEach((t, id) => {
+      console.log('[switchTab] Hiding webview:', id, 'current display:', t.webview.style.display);
       t.webview.style.display = 'none';
+      t.webview.style.zIndex = '1';
       t.element.classList.remove('active');
     });
 
-    // Show selected webview with correct dimensions
+    // Show selected webview with correct dimensions and highest z-index
     const container = elements.browserContainer;
     const w = container.clientWidth || window.innerWidth;
     const h = container.clientHeight || (window.innerHeight - 80);
     tab.webview.style.width = w + 'px';
     tab.webview.style.height = h + 'px';
     tab.webview.style.display = 'block';
+    tab.webview.style.zIndex = '10';
     tab.element.classList.add('active');
     this.activeTabId = tabId;
+
+    console.log('[switchTab] Showing webview:', tabId, 'display:', tab.webview.style.display, 'dimensions:', w + 'x' + h);
+    console.log('[switchTab] Webview URL:', tab.webview.getURL());
 
     // Update URL bar - only if webview has a URL loaded
     const url = tab.webview.getURL();
