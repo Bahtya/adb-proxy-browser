@@ -1,299 +1,297 @@
-# ADB Proxy Browser
+<div align="center">
 
-A customized Electron browser that routes traffic through an ADB tunnel to your Android phone's proxy (Clash, Shadowsocks, V2Ray, etc.).
+# 🌐 ADB Proxy Browser
 
-## Features
+**Route your PC traffic through your Android phone's proxy via USB**
 
-- Automatic Android device detection via ADB (no external `adb` binary required)
-- One-click connection to phone's proxy
-- Built-in browser with tab support
-- SOCKS5 and HTTP proxy protocols
-- **Terminal panel with SSH to Termux** - access your phone's shell directly
-- System tray integration
-- Cross-platform: Windows, macOS, Linux
+*A lightweight Electron browser with built-in ADB tunnel support*
 
-## Architecture
+[![GitHub release](https://img.shields.io/github/release/Bahtya/adb-proxy-browser.svg?style=flat-square)](https://github.com/Bahtya/adb-proxy-browser/releases)
+[![GitHub stars](https://img.shields.io/github/stars/Bahtya/adb-proxy-browser?style=flat-square&logo=github&color=yellow)](https://github.com/Bahtya/adb-proxy-browser/stargazers)
+[![GitHub downloads](https://img.shields.io/github/downloads/Bahtya/adb-proxy-browser/total?style=flat-square&logo=github)](https://github.com/Bahtya/adb-proxy-browser/releases)
+[![License](https://img.shields.io/github/license/Bahtya/adb-proxy-browser?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](https://github.com/Bahtya/adb-proxy-browser/releases)
 
-```
-Browser → Local Proxy (7890) → ADB Tunnel → Phone Proxy (7890) → Internet
-```
+<img src="https://img.shields.io/badge/Electron-28-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron"/>
+<img src="https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js"/>
 
-The app sets up an ADB port forward and exposes a local proxy endpoint. Any application on your PC can use this endpoint to route traffic through your phone.
+</div>
 
 ---
 
-## Prerequisites
+<div align="center">
 
-**Android phone:**
-- USB debugging enabled (Developer Options → USB Debugging)
-- A proxy app running: [Clash for Android](https://github.com/Kr328/ClashForAndroid), Shadowsocks, V2Ray, etc.
-- "Allow connections from LAN" enabled in the proxy app
+### ⭐ If this project helps you, please give it a star!
 
-**Windows PC:**
-- USB drivers for your device. If the device isn't recognized, install a WinUSB driver using [Zadig](https://zadig.akeo.ie/)
+<img src="https://img.shields.io/github/stars/Bahtya/adb-proxy-browser?style=social" alt="GitHub stars"/>
+
+</div>
 
 ---
 
-## Installation
+## 📸 Preview
 
-### Pre-built installer
+<div align="center">
 
-Download from [GitHub Releases](https://github.com/Bahtya/adb-proxy-browser/releases).
+| Welcome Screen | Browser View | Terminal Panel |
+|:--------------:|:------------:|:--------------:|
+| *Device detection & connection* | *Full browser experience* | *SSH to Termux* |
 
-### Build from source
+</div>
 
-```bash
-git clone https://github.com/Bahtya/adb-proxy-browser.git
-cd adb-proxy-browser
-npm install
-npm start          # development
-npm run build:win  # build Windows installer
+---
+
+## ✨ Features
+
+<table>
+<tr>
+<td width="50%">
+
+### 🔌 One-Click Connection
+- Automatic Android device detection
+- No external ADB binary required
+- Built-in platform tools download
+
+### 🌍 Built-in Browser
+- Chrome-like tabbed interface
+- URL suggestions from history
+- Bookmarks support
+
+</td>
+<td width="50%">
+
+### 🔒 Proxy Support
+- HTTP & SOCKS5 protocols
+- Works with Clash, V2Ray, Shadowsocks
+- System-wide proxy configuration
+
+### 💻 Terminal Access
+- Built-in SSH to Termux
+- xterm.js powered terminal
+- Direct phone shell access
+
+</td>
+</tr>
+</table>
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+| Requirement | Details |
+|-------------|---------|
+| 📱 **Android Phone** | USB debugging enabled, proxy app running (Clash/V2Ray/etc.) |
+| 💻 **PC** | USB drivers installed |
+| 🔧 **Proxy App** | "Allow LAN connections" enabled |
+
+### Installation
+
+Download the latest release for your platform:
+
+[![Download Windows](https://img.shields.io/badge/Windows-Download-0078D6?style=for-the-badge&logo=windows)](https://github.com/Bahtya/adb-proxy-browser/releases/latest)
+[![Download macOS](https://img.shields.io/badge/macOS-Download-000000?style=for-the-badge&logo=apple)](https://github.com/Bahtya/adb-proxy-browser/releases/latest)
+[![Download Linux](https://img.shields.io/badge/Linux-Download-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://github.com/Bahtya/adb-proxy-browser/releases/latest)
+
+### Usage
+
 ```
-
----
-
-## Quick Start (built-in browser)
-
-1. Connect your phone via USB
-2. Start your proxy app on the phone and enable "Allow LAN connections"
+1. Connect phone via USB
+2. Start proxy app on phone (enable "Allow LAN")
 3. Launch ADB Proxy Browser
-4. Click **Connect Phone** on the welcome screen
-5. Type a URL in the address bar and press Enter
-
----
-
-## Terminal (SSH to Termux)
-
-The app includes a built-in terminal that connects to your phone's Termux via SSH. This allows you to run shell commands on your phone directly from the app.
-
-### Setup Termux SSH Server
-
-1. **Install Termux** from [F-Droid](https://f-droid.org/packages/com.termux/) (recommended) or Google Play
-
-2. **Install OpenSSH** in Termux:
-   ```bash
-   pkg update
-   pkg install openssh
-   ```
-
-3. **Set a password** for SSH authentication:
-   ```bash
-   passwd
-   ```
-   Enter a password you'll remember - you'll need it to connect.
-
-4. **Find your username** (you'll need this too):
-   ```bash
-   whoami
-   ```
-   Usually it's `u0_aXXX` or just the username you set up.
-
-5. **Start the SSH server**:
-   ```bash
-   sshd
-   ```
-   The server runs on port 22 by default.
-
-6. **(Optional) Auto-start sshd** on Termux launch:
-   ```bash
-   echo 'sshd' >> ~/.bashrc
-   ```
-
-### Connect from ADB Proxy Browser
-
-1. Make sure your phone is connected via USB and Termux is running with `sshd` active
-2. Click the **Terminal** button (terminal icon) in the toolbar
-3. Enter your Termux **username** and **password** when prompted
-4. You'll be connected to a Termux shell!
-
-### Connection Architecture
-
-```
-xterm.js (renderer) → IPC → Main Process → SSH2 → ADB Tunnel (8022→22) → Termux sshd
+4. Click "Connect"
+5. Browse the internet through your phone's proxy!
 ```
 
-### Troubleshooting Terminal
+---
 
-**Connection refused**
-- Make sure `sshd` is running in Termux
-- Check if port 22 is available (run `netstat -tlnp` in Termux)
+## 📊 How It Works
 
-**Authentication failed**
-- Verify your username with `whoami`
-- Reset password with `passwd`
-
-**Terminal not responding**
-- Close and reopen the terminal panel
-- Check ADB connection status
+```
+┌─────────────┐      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+│   Browser   │ ───▶ │ Local Proxy │ ───▶ │ ADB Tunnel  │ ───▶ │ Phone Proxy │
+│   (PC)      │      │  (7890)     │      │  (USB)      │      │  (Clash)    │
+└─────────────┘      └─────────────┘      └─────────────┘      └─────────────┘
+                                                                      │
+                                                                      ▼
+                                                               ┌─────────────┐
+                                                               │  Internet   │
+                                                               └─────────────┘
+```
 
 ---
 
-## Using the forwarded port with other applications
+## 🛠️ Advanced Usage
 
-When you click **Connect Phone**, the app creates a local proxy on `127.0.0.1:7890` (default port). Any other program on your PC can use this proxy — you don't have to use the built-in browser.
+### Using with Other Applications
 
-### Default proxy address
+The app creates a local proxy at `127.0.0.1:7890`. Any application can use it:
 
-| Type | Address |
-|------|---------|
-| HTTP proxy | `http://127.0.0.1:7890` |
-| SOCKS5 proxy | `socks5://127.0.0.1:7890` |
+<details>
+<summary><b>📋 System-wide Proxy (Windows)</b></summary>
 
-Switch between HTTP and SOCKS5 in the Settings panel inside the app. The port can also be changed there.
+```
+Settings → Network & Internet → Proxy → Manual proxy setup
+- Address: 127.0.0.1
+- Port: 7890
+```
 
----
+</details>
 
-### System-wide proxy (Windows)
+<details>
+<summary><b>🌐 Browser Extension (Proxy SwitchyOmega)</b></summary>
 
-**Settings → Network & Internet → Proxy → Manual proxy setup**
-
-- Toggle "Use a proxy server" ON
-- Address: `127.0.0.1`
-- Port: `7890`
-- Click Save
-
-All Windows apps that respect system proxy settings (Edge, Chrome, etc.) will now route through your phone.
-
----
-
-### Browser — manual proxy extension
-
-For per-browser control without changing system settings, use [Proxy SwitchyOmega](https://github.com/FelisCatus/SwitchyOmega) (Chrome/Edge/Firefox):
-
-1. Install the extension
-2. Create a new profile → Proxy
-3. Protocol: `SOCKS5` (or `HTTP`)
+1. Install [Proxy SwitchyOmega](https://github.com/FelisCatus/SwitchyOmega)
+2. Create new profile → Proxy
+3. Protocol: SOCKS5 or HTTP
 4. Server: `127.0.0.1`, Port: `7890`
-5. Apply the profile
 
----
+</details>
 
-### curl
+<details>
+<summary><b>💻 Command Line Tools</b></summary>
 
 ```bash
-# HTTP proxy
+# curl
 curl -x http://127.0.0.1:7890 https://example.com
 
-# SOCKS5 proxy
-curl --socks5 127.0.0.1:7890 https://example.com
+# git
+git config --global http.proxy http://127.0.0.1:7890
+
+# npm
+npm config set proxy http://127.0.0.1:7890
+
+# pip
+pip install package --proxy http://127.0.0.1:7890
 ```
 
----
+</details>
 
-### Python `requests`
+<details>
+<summary><b>🐍 Python</b></summary>
 
 ```python
 import requests
 
 proxies = {
-    "http":  "socks5://127.0.0.1:7890",
+    "http": "socks5://127.0.0.1:7890",
     "https": "socks5://127.0.0.1:7890",
 }
-r = requests.get("https://example.com", proxies=proxies)
-print(r.text)
+response = requests.get("https://example.com", proxies=proxies)
 ```
 
-Install `requests` with SOCKS support: `pip install requests[socks]`
+</details>
 
 ---
 
-### Node.js
+## 💻 Terminal (SSH to Termux)
 
-```js
-const { HttpsProxyAgent } = require("https-proxy-agent");
-const https = require("https");
+Access your phone's shell directly from the app!
 
-const agent = new HttpsProxyAgent("http://127.0.0.1:7890");
-https.get("https://example.com", { agent }, (res) => {
-  res.pipe(process.stdout);
-});
-```
-
----
-
-### git
+<details>
+<summary><b>Setup Termux SSH Server</b></summary>
 
 ```bash
-git config --global http.proxy  http://127.0.0.1:7890
-git config --global https.proxy http://127.0.0.1:7890
+# 1. Install Termux from F-Droid (recommended)
 
-# Remove when done
-git config --global --unset http.proxy
-git config --global --unset https.proxy
+# 2. Install OpenSSH
+pkg update && pkg install openssh
+
+# 3. Set password
+passwd
+
+# 4. Find your username
+whoami
+
+# 5. Start SSH server
+sshd
+
+# (Optional) Auto-start on launch
+echo 'sshd' >> ~/.bashrc
 ```
+
+</details>
 
 ---
 
-### npm / pnpm / yarn
+## 🔧 Build from Source
 
 ```bash
-npm config set proxy http://127.0.0.1:7890
-npm config set https-proxy http://127.0.0.1:7890
+# Clone repository
+git clone https://github.com/Bahtya/adb-proxy-browser.git
+cd adb-proxy-browser
 
-# Remove
-npm config delete proxy
-npm config delete https-proxy
+# Install dependencies
+npm install
+
+# Run in development
+npm start
+
+# Build for production
+npm run build:win    # Windows
+npm run build:mac    # macOS
+npm run build:linux  # Linux
 ```
 
 ---
 
-### pip
+## 📈 Project Stats
 
-```bash
-pip install somepackage --proxy http://127.0.0.1:7890
-```
+<div align="center">
 
-Or set an environment variable:
+| Stats | Badge |
+|-------|-------|
+| **Stars** | ![Stars](https://img.shields.io/github/stars/Bahtya/adb-proxy-browser?style=flat-square&logo=github) |
+| **Forks** | ![Forks](https://img.shields.io/github/forks/Bahtya/adb-proxy-browser?style=flat-square&logo=github) |
+| **Issues** | ![Issues](https://img.shields.io/github/issues/Bahtya/adb-proxy-browser?style=flat-square&logo=github) |
+| **Downloads** | ![Downloads](https://img.shields.io/github/downloads/Bahtya/adb-proxy-browser/total?style=flat-square&logo=github) |
+| **Contributors** | ![Contributors](https://img.shields.io/github/contributors/Bahtya/adb-proxy-browser?style=flat-square&logo=github) |
+| **Last Commit** | ![Last Commit](https://img.shields.io/github/last-commit/Bahtya/adb-proxy-browser?style=flat-square&logo=github) |
 
-```bash
-# Windows (cmd)
-set HTTPS_PROXY=http://127.0.0.1:7890
-
-# Windows (PowerShell)
-$env:HTTPS_PROXY = "http://127.0.0.1:7890"
-```
-
----
-
-## Configuration
-
-Open **Settings** (gear icon, top-right) to change:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Proxy Port | 7890 | Local port your PC connects to |
-| Phone Proxy Port | 7890 | Port Clash/proxy listens on the phone |
-| Proxy Type | HTTP | HTTP or SOCKS5 |
+</div>
 
 ---
 
-## Troubleshooting
+## 🤝 Contributing
 
-**Device not detected**
-- Check USB cable and try a different port
-- On Windows, run Zadig to install the WinUSB driver for your device
-- Enable USB debugging and accept the RSA fingerprint prompt on the phone
+Contributions are welcome! Here's how you can help:
 
-**Connected but no internet**
-- Confirm "Allow LAN connections" is enabled in your phone's proxy app
-- Verify the Phone Proxy Port matches what the proxy app is actually using
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/Bahtya/adb-proxy-browser/pulls)
 
-**Port already in use**
-- Change the Proxy Port in Settings to any free port (e.g. 7891) and update external apps accordingly
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
 
 ---
 
-## Tech Stack
+## 📝 License
 
-- Electron 28
-- adbkit (ADB protocol, no external binary needed)
-- usb (libusb bindings)
-- Native SOCKS5/HTTP proxy implementation
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## License
+---
 
-MIT
+## 🙏 Acknowledgments
 
-## Contributing
+- [Electron](https://www.electronjs.org/) - Cross-platform desktop apps
+- [adbkit](https://github.com/OpenSTF/adbkit) - Pure JavaScript ADB implementation
+- [xterm.js](https://xtermjs.org/) - Terminal emulator
+- [ssh2](https://github.com/mscdex/ssh2) - SSH2 client
 
-Pull requests are welcome! For major changes, please open an issue first.
+---
+
+<div align="center">
+
+### ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Bahtya/adb-proxy-browser&type=Date)](https://star-history.com/#Bahtya/adb-proxy-browser&Date)
+
+**[⬆ Back to Top](#-adb-proxy-browser)**
+
+---
+
+*Made with ❤️ by [Bahtya](https://github.com/Bahtya)*
+
+</div>
