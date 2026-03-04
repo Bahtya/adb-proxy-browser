@@ -1266,14 +1266,9 @@ class TabManager {
     if (url && url !== 'about:blank') {
       webview.src = url;
     } else {
-      // Show the new-tab navigation page: load bookmarks + history first, then build page
-      // Use loadFile for local HTML file instead of data URL
-      const newTabHtmlPath = path.join(__dirname, 'new-tab-page.html');
-      webview.loadFile(newTabHtmlPath).catch(err => {
-        console.error('[createTab] Failed to load new tab page:', err.message);
-        // Simple fallback to blank page
-        webview.src = 'about:blank';
-      });
+      // Show the new-tab navigation page
+      // Use file:// URL for local HTML file
+      webview.src = `file://${__dirname}/new-tab-page.html`;
     }
 
     return tabId;
