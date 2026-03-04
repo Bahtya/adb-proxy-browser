@@ -572,7 +572,7 @@ async function createWindow() {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     // Push current state immediately (may be empty if ADB not ready)
     const devices = connectionManager ? connectionManager.adbManager.getDevices() : [];
-    console.log('[IPC] did-finish-load push: devices=', devices.length);
+    log.info('IPC', 'did-finish-load push: devices=', devices.length);
     mainWindow.webContents.send('device:changed', devices);
     if (connectionManager) {
       mainWindow.webContents.send('connection:statusChanged', connectionManager.getStatus());
@@ -930,10 +930,21 @@ async function setBrowserProxy() {
 // Performance timing helper
 const perf = {
   start: Date.now(),
+  marks: [],
   mark(label) {
     const elapsed = Date.now() - this.start;
-    console.log(`[PERF] +${elapsed}ms - ${label}`);
+    const prev = this.marks.length > 0 ? this.marks[this.marks.length - 1].elapsed : 0;
+    const delta = elapsed - prev;
+    this.marks.push({ label, elapsed, delta });
+    log.info('Perf', `+${elapsed}ms (${delta}ms) - ${label}`);
     return elapsed;
+  },
+  summary() {
+    const total = Date.now() - this.start;
+    const lines = this.marks.map(m => `  +${String(m.elapsed).padStart(5)}ms (${String(m.delta).padStart(4)}ms) ${m.label}`);
+    const text = `Startup completed in ${total}ms\n${lines.join('\n')}`;
+    log.info('Perf', text);
+    return { total, marks: this.marks };
   }
 };
 
@@ -959,11 +970,13 @@ app.whenReady().then(async () => {
   const windowStart = Date.now();
   await createWindow();
   perf.mark(`createWindow() complete (${Date.now() - windowStart}ms)`);
+  perf.summary(); // Log sync startup summary (window visible)
 
   // Initialize ADB in background (non-blocking)
   const adbStart = Date.now();
   connectionManager.init().then(() => {
     perf.mark(`ADB init complete (${Date.now() - adbStart}ms)`);
+    perf.summary(); // Log full startup summary (ADB ready)
     // Push device list to renderer once ADB is ready
     if (mainWindow && !mainWindow.isDestroyed()) {
       const devices = connectionManager.adbManager.getDevices();
@@ -971,6 +984,7 @@ app.whenReady().then(async () => {
     }
   }).catch(err => {
     perf.mark(`ADB init FAILED (${Date.now() - adbStart}ms): ${err.message}`);
+    perf.summary(); // Log full startup summary (ADB failed)
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('adb:error', err.message);
     }
