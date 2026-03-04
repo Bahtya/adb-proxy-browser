@@ -1267,8 +1267,9 @@ class TabManager {
       webview.src = url;
     } else {
       // Show the new-tab navigation page
-      // Use file:// URL for local HTML file
-      webview.src = `file://${__dirname}/new-tab-page.html`;
+      // Use relative path from current page location
+      const currentDir = location.href.substring(0, location.href.lastIndexOf('/'));
+      webview.src = `${currentDir}/new-tab-page.html`;
     }
 
     return tabId;
