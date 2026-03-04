@@ -559,22 +559,17 @@ async function createWindow() {
   // Load the renderer
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
-  // Push device state to renderer after it loads (handles already-connected devices)
-  // Use a generous delay to ensure renderer's async init() has completed
+  // Push device state to renderer after it loads
   mainWindow.webContents.on('did-finish-load', () => {
-    // Push at 1s and 3s to handle any timing variations
-    [1000, 3000].forEach(delay => {
-      setTimeout(() => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        const devices = connectionManager ? connectionManager.adbManager.getDevices() : [];
-        console.log(`[IPC] did-finish-load push (${delay}ms): devices=`, JSON.stringify(devices));
-        mainWindow.webContents.send('device:changed', devices);
-        if (connectionManager) {
-          const status = connectionManager.getStatus();
-          mainWindow.webContents.send('connection:statusChanged', status);
-        }
-      }, delay);
-    });
+    // Single immediate push - ADB init now happens in background
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const devices = connectionManager ? connectionManager.adbManager.getDevices() : [];
+    console.log('[IPC] did-finish-load push: devices=', JSON.stringify(devices));
+    mainWindow.webContents.send('device:changed', devices);
+    if (connectionManager && connectionManager.connected) {
+      const status = connectionManager.getStatus();
+      mainWindow.webContents.send('connection:statusChanged', status);
+    }
   });
 
   // Show window when ready
@@ -891,26 +886,38 @@ async function setBrowserProxy() {
 
 // App lifecycle
 app.whenReady().then(async () => {
-  // Initialize connection manager
-  connectionManager = new ConnectionManager();
-
-  let adbError = null;
-  try {
-    await connectionManager.init();
-    // Initialize terminal manager
-    terminalManager = new TerminalManager(connectionManager.adbManager);
-  } catch (err) {
-    console.error('[App] Failed to initialize connection manager:', err.message);
-    adbError = err.message;
-  }
-
+  // Setup IPC first (fast)
   setupIpc();
+
+  // Create window immediately (don't wait for ADB)
   await createWindow();
 
-  // Send ADB error to renderer if any
-  if (adbError && mainWindow) {
-    mainWindow.webContents.send('adb:error', adbError);
-  }
+  // Initialize connection manager in background
+  connectionManager = new ConnectionManager();
+
+  // Use setImmediate to not block window show
+  setImmediate(async () => {
+    let adbError = null;
+    try {
+      await connectionManager.init();
+      // Initialize terminal manager
+      terminalManager = new TerminalManager(connectionManager.adbManager);
+    } catch (err) {
+      console.error('[App] Failed to initialize connection manager:', err.message);
+      adbError = err.message;
+    }
+
+    // Send ADB status to renderer
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (adbError) {
+        mainWindow.webContents.send('adb:error', adbError);
+      } else {
+        // Push initial device list
+        const devices = connectionManager.adbManager.getDevices();
+        mainWindow.webContents.send('device:changed', devices);
+      }
+    }
+  });
 });
 
 app.on('activate', () => {

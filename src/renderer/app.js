@@ -156,10 +156,15 @@ class TerminalManager {
   }
 
   /**
-   * Initialize xterm.js terminal
+   * Initialize xterm.js terminal (lazy load on first use)
    */
   async init() {
     if (this.terminal) return;
+
+    // Lazy load xterm.js if not already loaded
+    if (typeof window.loadXterm === 'function') {
+      await window.loadXterm();
+    }
 
     // Use global xterm from script tags
     // Terminal might be at window.Terminal or window.Terminal.Terminal
