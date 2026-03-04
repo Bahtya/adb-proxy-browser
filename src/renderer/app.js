@@ -1270,6 +1270,30 @@ class TabManager {
       // Use relative path from current page location
       const currentDir = location.href.substring(0, location.href.lastIndexOf('/'));
       webview.src = `${currentDir}/new-tab-page.html`;
+
+      // Inject bookmarks and history data after page loads
+      const injectData = async () => {
+        try {
+          const [bookmarks, history] = await Promise.all([
+            window.electronAPI.getBookmarks().catch(() => []),
+            window.electronAPI.getHistory().catch(() => [])
+          ]);
+          const historyItems = (history || []).slice(0, 8);
+          webview.executeJavaScript(`
+            window.bookmarks = ${JSON.stringify(bookmarks)};
+            window.history = ${JSON.stringify(historyItems)};
+            if (typeof renderBookmarks === 'function') renderBookmarks();
+            if (typeof renderHistory === 'function') renderHistory();
+          `);
+        } catch (err) {
+          console.error('[createTab] Failed to inject data:', err.message);
+        }
+      };
+
+      webview.addEventListener('dom-ready', function onDomReady() {
+        webview.removeEventListener('dom-ready', onDomReady);
+        injectData();
+      });
     }
 
     return tabId;
