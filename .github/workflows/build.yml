@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+env:
+  NODE_VERSION: '20'
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -22,18 +25,24 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
 
-      # Cache node_modules for faster installs
-      - name: Cache node_modules
+      # Unified cache for all platforms - includes node_modules and native builds
+      - name: Get npm cache directory
+        shell: bash
+        id: npm-cache-dir
+        run: echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
+
+      - name: Cache npm and node_modules
         uses: actions/cache@v4
-        id: modules-cache
+        id: npm-cache
         with:
-          path: node_modules
-          key: ${{ runner.os }}-modules-${{ hashFiles('**/package-lock.json') }}
+          path: |
+            ${{ steps.npm-cache-dir.outputs.dir }}
+            node_modules
+          key: ${{ runner.os }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-modules-
+            ${{ runner.os }}-node-${{ env.NODE_VERSION }}-
 
       # Cache Electron and electron-builder binaries
       - name: Cache Electron binaries (Windows)
@@ -43,45 +52,56 @@ jobs:
           path: |
             ~\AppData\Local\electron\Cache
             ~\AppData\Local\electron-builder\Cache
-            ~\AppData\Local\Cypress\Cache
           key: ${{ runner.os }}-electron-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-
+          restore-keys: ${{ runner.os }}-electron-
 
-      - name: Cache Electron binaries (macOS)
-        if: matrix.os == 'macos-latest'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/Library/Caches/electron
-            ~/Library/Caches/electron-builder
-          key: ${{ runner.os }}-electron-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-
-
-      - name: Cache Electron binaries (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Cache Electron binaries (Unix)
+        if: matrix.os != 'windows-latest'
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/electron
             ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
           key: ${{ runner.os }}-electron-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-
+          restore-keys: ${{ runner.os }}-electron-
+
+      # Windows-specific: Cache native module builds (node-gyp)
+      - name: Cache node-gyp (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\node-gyp
+          key: ${{ runner.os }}-node-gyp-${{ env.NODE_VERSION }}
+          restore-keys: ${{ runner.os }}-node-gyp-
 
       - name: Install dependencies
-        if: steps.modules-cache.outputs.cache-hit != 'true'
-        run: npm ci --prefer-offline --no-audit --progress=false
+        run: |
+          if [ "${{ steps.npm-cache.outputs.cache-hit }}" == "true" ]; then
+            echo "Cache hit - running npm ci to verify"
+            npm ci --prefer-offline --no-audit --ignore-scripts
+          else
+            echo "Cache miss - clean install"
+            npm ci --no-audit
+          fi
+        shell: bash
         env:
           npm_config_fund: false
-          npm_config_loglevel: error
+          npm_config_loglevel: warn
+
+      # Rebuild native modules after cache restore
+      - name: Rebuild native modules
+        if: steps.npm-cache.outputs.cache-hit == 'true'
+        run: npm rebuild
 
       - name: Build Electron app (Windows)
         if: matrix.os == 'windows-latest'
         run: npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Speed up Windows build
+          CSC_IDENTITY_AUTO_DISCOVERY: false  # Skip code signing for faster builds
 
       - name: Build Electron app (macOS)
         if: matrix.os == 'macos-latest'
