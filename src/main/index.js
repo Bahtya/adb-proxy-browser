@@ -912,40 +912,38 @@ async function setBrowserProxy() {
   }
 }
 
-// App lifecycle
+// App lifecycle - Initialize synchronously (fast, don't block window)
 app.whenReady().then(async () => {
   // Setup IPC first (fast)
   setupIpc();
 
-  // Create window immediately (don't wait for ADB)
-  await createWindow();
-
-  // Initialize connection manager in background
+  // Initialize connection manager FIRST (needed for terminal)
   connectionManager = new ConnectionManager();
 
-  // Use setImmediate to not block window show
-  setImmediate(async () => {
-    let adbError = null;
-    try {
-      await connectionManager.init();
-      // Initialize terminal manager
-      terminalManager = new TerminalManager(connectionManager.adbManager);
-    } catch (err) {
-      console.error('[App] Failed to initialize connection manager:', err.message);
-      adbError = err.message;
-    }
+  // Initialize terminal manager
+  terminalManager = new TerminalManager(connectionManager.adbManager);
 
-    // Send ADB status to renderer
+
+  // Now create window (ADB init happens in background)
+  await createWindow();
+
+  // Then initialize ADB in background
+  try {
+    await connectionManager.init();
+    console.log('[App] ADB initialized successfully');
+
+    // Push initial device list
+    const devices = connectionManager.adbManager.getDevices();
+    console.log('[App] Initial devices:', devices.length);
     if (mainWindow && !mainWindow.isDestroyed()) {
-      if (adbError) {
-        mainWindow.webContents.send('adb:error', adbError);
-      } else {
-        // Push initial device list
-        const devices = connectionManager.adbManager.getDevices();
-        mainWindow.webContents.send('device:changed', devices);
-      }
+      mainWindow.webContents.send('device:changed', devices);
     }
-  });
+  } catch (err) {
+    console.error('[App] Failed to initialize connection manager:', err.message);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('adb:error', err.message);
+    }
+  }
 });
 
 app.on('activate', () => {
