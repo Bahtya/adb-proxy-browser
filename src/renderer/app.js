@@ -671,7 +671,7 @@ function setupTerminalResize() {
     resizeWebviewsToContainer();
   }
 
-  handle.addEventListener('mousedown', (e) => {
+  handle.addEventListener('pointerdown', (e) => {
     isDragging = true;
     startX = e.clientX;
     startWidth = panel.offsetWidth;
@@ -683,13 +683,16 @@ function setupTerminalResize() {
     // Prevent flex from overriding our width
     panel.style.setProperty('flex-shrink', '0', 'important');
 
-    // Capture pointer so mouseup fires even if released outside the window
+    // Capture pointer so all pointer events route to this element,
+    // even when the cursor moves outside the handle or window
     handle.setPointerCapture(e.pointerId);
 
     e.preventDefault();
   });
 
-  document.addEventListener('mousemove', (e) => {
+  // Use pointermove on the handle (not mousemove on document) so that
+  // pointer capture works correctly — fast drags stay tracked
+  handle.addEventListener('pointermove', (e) => {
     if (!isDragging) return;
 
     const deltaX = startX - e.clientX;
@@ -710,10 +713,8 @@ function setupTerminalResize() {
     resizeWebviewsToContainer();
   });
 
-  // mouseup on document handles normal releases inside the window
-  document.addEventListener('mouseup', stopDrag);
-
-  // pointerup on handle catches releases outside the window (via pointer capture)
+  // pointerup on handle catches all releases (pointer capture ensures this fires
+  // even when cursor is outside the window)
   handle.addEventListener('pointerup', stopDrag);
 
   // pointercancel also terminates the drag (e.g. Escape key, focus loss)
