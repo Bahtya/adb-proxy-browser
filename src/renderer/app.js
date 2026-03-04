@@ -1262,18 +1262,18 @@ class TabManager {
       webview.shadowRoot.appendChild(shadowStyle);
     }
 
-    // Load URL directly, or show new-tab page for blank tabs.
+    // Load URL directly, or show new-tab page for blank tabs
     if (url && url !== 'about:blank') {
       webview.src = url;
     } else {
       // Show the new-tab navigation page: load bookmarks + history first, then build page
-      (async () => {
-        const [bookmarks, history] = await Promise.all([
-          window.electronAPI.getBookmarks().catch(() => []),
-          window.electronAPI.getHistory().catch(() => [])
-        ]);
-        webview.src = `data:text/html;charset=utf-8,${encodeURIComponent(buildNewTabPage(bookmarks, history))}`;
-      })();
+      // Use loadFile for local HTML file instead of data URL
+      const newTabHtmlPath = path.join(__dirname, 'new-tab-page.html');
+      webview.loadFile(newTabHtmlPath).catch(err => {
+        console.error('[createTab] Failed to load new tab page:', err.message);
+        // Simple fallback to blank page
+        webview.src = 'about:blank';
+      });
     }
 
     return tabId;
@@ -1437,7 +1437,35 @@ class TabManager {
         </body>
       </html>
     `;
-    webview.executeJavaScript(`document.open(); document.write(\`${errorHtml}\`); document.close();`);
+    // Wait for dom-ready before calling executeJavaScript
+    const showPage = () => {
+      try {
+        webview.executeJavaScript(`document.open(); document.write(\`${errorHtml}\`); document.close();`);
+      } catch (e) {
+        console.error('[showErrorPage] executeJavaScript failed:', e.message);
+      }
+    };
+    // Check if webview is ready
+    if (webview.getWebContentsId) {
+      try {
+        webview.getWebContentsId();
+        showPage();
+      } catch (e) {
+        // Webview not ready, wait for dom-ready
+        const onDomReady = () => {
+          webview.removeEventListener('dom-ready', onDomReady);
+          showPage();
+        };
+        webview.addEventListener('dom-ready', onDomReady);
+      }
+    } else {
+      // Fallback: wait for dom-ready
+      const onDomReady = () => {
+        webview.removeEventListener('dom-ready', onDomReady);
+        showPage();
+      };
+      webview.addEventListener('dom-ready', onDomReady);
+    }
   }
 
   getActiveWebview() {
