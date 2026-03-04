@@ -1,6 +1,10 @@
 const { getDeviceManager, findAdbPath } = require('./device');
 const PortForwarder = require('./forward');
-const Adb = require('adbkit');
+// adbkit is NOT required at module load time. It is lazy-loaded inside init()
+// because adbkit transitively pulls in the 'usb' native addon (libusb), which
+// on Windows takes 15-20 seconds to initialize (USB device enumeration + AV scan
+// of the .node binary). Deferring this require to first use means the Electron
+// window can appear in ~600ms while ADB loads in the background.
 
 class AdbManager {
   constructor() {
@@ -20,6 +24,11 @@ class AdbManager {
     try {
       // Get ADB path
       this.adbPath = findAdbPath();
+
+      // Lazy-load adbkit here (not at module top-level) to avoid loading the
+      // usb/libusb native addon before the window is visible. This is the
+      // single most impactful optimization for Windows startup time.
+      const Adb = require('adbkit');
 
       // Create ADB client with correct settings
       this.client = Adb.createClient({

@@ -1096,16 +1096,20 @@ class TabManager {
       }
     });
 
+    const isInternalPage = (url) => {
+      return url && (url.includes('adb-status-page.html') || url.includes('new-tab-page.html'));
+    };
+
     webview.addEventListener('did-navigate', (e) => {
       if (this.activeTabId === tabId) {
-        elements.urlInput.value = e.url;
+        elements.urlInput.value = isInternalPage(e.url) ? '' : e.url;
         this.updateNavigationButtons(webview);
       }
     });
 
     webview.addEventListener('did-navigate-in-page', (e) => {
       if (this.activeTabId === tabId && e.isMainFrame) {
-        elements.urlInput.value = e.url;
+        elements.urlInput.value = isInternalPage(e.url) ? '' : e.url;
         this.updateNavigationButtons(webview);
       }
     });
@@ -1150,6 +1154,37 @@ class TabManager {
         } catch (err) {
           console.error('[Bookmarks] Failed to parse:', err);
         }
+        return;
+      }
+      // ADB status page protocols
+      if (message === '__ADB_CONNECT__') {
+        autoConnect();
+        return;
+      }
+      if (message === '__ADB_DISCONNECT__') {
+        toggleConnection();
+        return;
+      }
+      if (message === '__ADB_GET_STATUS__') {
+        pushAdbStatusToWebview(webview);
+        return;
+      }
+      if (message.startsWith('__ADB_SET_CONFIG__:')) {
+        const json = message.substring('__ADB_SET_CONFIG__:'.length);
+        try {
+          const cfg = JSON.parse(json);
+          state.config.localPort = cfg.localPort || state.config.localPort;
+          state.config.remotePort = cfg.remotePort || state.config.remotePort;
+          state.config.proxyType = cfg.proxyType || state.config.proxyType;
+          // Sync to main welcome screen inputs
+          elements.proxyPort.value = state.config.localPort;
+          elements.remotePort.value = state.config.remotePort;
+          elements.proxyType.value = state.config.proxyType;
+          window.electronAPI.setConfig(state.config).catch(err => console.error('Failed to save config:', err));
+        } catch (err) {
+          console.error('[ADB Config] Failed to parse:', err);
+        }
+        return;
       }
     });
 
@@ -1263,12 +1298,20 @@ class TabManager {
     }
 
     // Load URL directly, or show new-tab page for blank tabs
+    const currentDir = location.href.substring(0, location.href.lastIndexOf('/'));
     if (url && url !== 'about:blank') {
-      webview.src = url;
+      // Check if it's the ADB status page URL
+      if (url === 'adb-status') {
+        webview.src = `${currentDir}/adb-status-page.html`;
+        webview.addEventListener('dom-ready', function onDomReady() {
+          webview.removeEventListener('dom-ready', onDomReady);
+          pushAdbStatusToWebview(webview);
+        });
+      } else {
+        webview.src = url;
+      }
     } else {
       // Show the new-tab navigation page
-      // Use relative path from current page location
-      const currentDir = location.href.substring(0, location.href.lastIndexOf('/'));
       webview.src = `${currentDir}/new-tab-page.html`;
 
       // Inject bookmarks and history data after page loads
@@ -1303,13 +1346,13 @@ class TabManager {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
 
-    // If only one tab, close it and show welcome screen
+    // If only one tab, close it and open a new navigation tab
     if (this.tabs.size === 1) {
       tab.element.remove();
       tab.webview.remove();
       this.tabs.delete(tabId);
       this.activeTabId = null;
-      showWelcomeScreen();
+      this.createTab();
       return;
     }
 
@@ -1357,8 +1400,11 @@ class TabManager {
     console.log('[switchTab] Webview URL:', tab.webview.getURL());
 
     // Update URL bar - only if webview has a URL loaded
+    const isInternalPage = (url) => url && (url.includes('adb-status-page.html') || url.includes('new-tab-page.html'));
     const url = tab.webview.getURL();
-    if (url && url !== 'about:blank') {
+    if (isInternalPage(url) || isInternalPage(tab.url)) {
+      elements.urlInput.value = '';
+    } else if (url && url !== 'about:blank') {
       elements.urlInput.value = url;
     } else if (tab.url && tab.url !== 'about:blank') {
       // Use stored URL if webview hasn't loaded yet
@@ -1746,6 +1792,9 @@ async function init() {
   // Setup event listeners
   setupEventListeners();
 
+  // Auto-create a navigation tab on startup
+  tabManager.createTab();
+
   // Start 2-second probe loop to keep connection status accurate
   startConnectionProbe();
 }
@@ -1824,13 +1873,30 @@ function setupEventListeners() {
     const webview = tabManager.getActiveWebview();
     if (webview) {
       elements.urlInput.value = '';
-      (async () => {
-        const [bookmarks, history] = await Promise.all([
-          window.electronAPI.getBookmarks().catch(() => []),
-          window.electronAPI.getHistory().catch(() => [])
-        ]);
-        webview.src = `data:text/html;charset=utf-8,${encodeURIComponent(buildNewTabPage(bookmarks, history))}`;
-      })();
+      const currentDir = location.href.substring(0, location.href.lastIndexOf('/'));
+      webview.src = `${currentDir}/new-tab-page.html`;
+      // Inject data after load
+      const injectData = async () => {
+        try {
+          const [bookmarks, history] = await Promise.all([
+            window.electronAPI.getBookmarks().catch(() => []),
+            window.electronAPI.getHistory().catch(() => [])
+          ]);
+          const historyItems = (history || []).slice(0, 8);
+          webview.executeJavaScript(`
+            window.bookmarks = ${JSON.stringify(bookmarks)};
+            window.history = ${JSON.stringify(historyItems)};
+            if (typeof renderBookmarks === 'function') renderBookmarks();
+            if (typeof renderHistory === 'function') renderHistory();
+          `);
+        } catch (err) {
+          console.error('[Home] Failed to inject data:', err.message);
+        }
+      };
+      webview.addEventListener('dom-ready', function onDomReady() {
+        webview.removeEventListener('dom-ready', onDomReady);
+        injectData();
+      });
     }
   });
   elements.urlInput.addEventListener('keydown', (e) => {
@@ -1871,15 +1937,14 @@ function setupEventListeners() {
     setTimeout(hideSuggestions, 200);
   });
 
-  // New tab button
+  // New tab button - always create navigation tab
   elements.btnNewTab.addEventListener('click', () => {
-    if (tabManager.tabs.size === 0) {
-      // No tabs, show welcome screen
-      showWelcomeScreen();
-    } else {
-      // Create new tab (will show welcome content via about:blank handling)
-      tabManager.createTab();
-    }
+    tabManager.createTab();
+  });
+
+  // Connection status indicator - open ADB status page
+  elements.connectionStatus.addEventListener('click', () => {
+    tabManager.createTab('adb-status');
   });
 
   // Connection
@@ -2186,6 +2251,39 @@ async function toggleConnection() {
   updateConnectionUI();
 }
 
+// Push current ADB status to a webview showing adb-status-page.html
+function pushAdbStatusToWebview(webview) {
+  try {
+    const data = {
+      connected: state.connected,
+      autoConnecting: state.autoConnecting,
+      devices: state.devices,
+      config: state.config
+    };
+    webview.executeJavaScript(`
+      if (typeof window.updateStatus === 'function') {
+        window.updateStatus(${JSON.stringify(data)});
+      }
+    `);
+  } catch (err) {
+    console.error('[pushAdbStatus] Failed:', err.message);
+  }
+}
+
+// Push ADB status to all tabs showing the ADB status page
+function pushAdbStatusToAllStatusTabs() {
+  tabManager.tabs.forEach((tab) => {
+    try {
+      const url = tab.webview.getURL();
+      if (url && url.includes('adb-status-page.html')) {
+        pushAdbStatusToWebview(tab.webview);
+      }
+    } catch (err) {
+      // Webview may not be ready yet
+    }
+  });
+}
+
 // Update connection UI
 function updateConnectionUI() {
   const btn = elements.btnConnect;
@@ -2221,6 +2319,7 @@ function updateConnectionUI() {
     statusIndicator.className = 'status-indicator disconnected';
     statusText.textContent = 'Offline';
   }
+  pushAdbStatusToAllStatusTabs();
 }
 
 // Update device UI and trigger auto-connect when a device appears
@@ -2245,6 +2344,7 @@ function updateDeviceUI() {
       autoConnect();
     }
   }
+  pushAdbStatusToAllStatusTabs();
 }
 
 // Update config from UI
