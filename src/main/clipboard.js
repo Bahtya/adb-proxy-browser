@@ -75,7 +75,7 @@ class ClipboardManager {
    * Falls back to `service call clipboard 2` for older devices.
    */
   async getPhoneClipboard() {
-    if (!this.adbManager || !this.adbManager.initialized) {
+    if (!this.adbManager || !this.adbManager.client) {
       console.log('[Clipboard] getPhone: adbManager not ready');
       return '';
     }
@@ -119,7 +119,7 @@ class ClipboardManager {
    * Falls back to `am broadcast` with escaped text.
    */
   async setPhoneClipboard(text) {
-    if (!this.adbManager || !this.adbManager.initialized) return false;
+    if (!this.adbManager || !this.adbManager.client) return false;
 
     const device = this.adbManager.getFirstDevice();
     if (!device) return false;
