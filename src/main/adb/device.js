@@ -64,35 +64,44 @@ class DeviceManager extends EventEmitter {
    * Initialize ADB client
    */
   async init() {
+    const initStart = Date.now();
+    console.log(`[PERF] +0ms - ADB init() called`);
+
     if (this.client) {
       console.log('[ADB] Already initialized, skipping');
       return;
     }
 
     // Find ADB
+    const findStart = Date.now();
     this.adbPath = findAdbPath();
+    console.log(`[PERF] +${Date.now() - initStart}ms - findAdbPath() (${Date.now() - findStart}ms)`);
     console.log('[ADB] Using ADB path:', this.adbPath);
 
     try {
+      const clientStart = Date.now();
       this.client = Adb.createClient({
         bin: this.adbPath,
         host: '127.0.0.1', // Force IPv4
         port: 5037
       });
-      console.log('[ADB] ADB client created');
+      console.log(`[PERF] +${Date.now() - initStart}ms - Adb.createClient() (${Date.now() - clientStart}ms)`);
 
       // Try to start ADB server
       console.log('[ADB] Starting ADB server...');
+      const serverStart = Date.now();
       await this.startAdbServer();
-      console.log('[ADB] ADB server started');
+      console.log(`[PERF] +${Date.now() - initStart}ms - startAdbServer() (${Date.now() - serverStart}ms)`);
 
       // Start tracking devices
       console.log('[ADB] Starting device tracking...');
+      const trackStart = Date.now();
       await this.startTracking();
-      console.log('[ADB] Device tracking started');
+      console.log(`[PERF] +${Date.now() - initStart}ms - startTracking() (${Date.now() - trackStart}ms)`);
 
       // Log initial device count
       console.log('[ADB] Initial device count:', this.devices.length);
+      console.log(`[PERF] +${Date.now() - initStart}ms - ADB init() COMPLETE`);
     } catch (err) {
       console.error('[ADB] Failed to initialize:', err.message);
       console.error('[ADB] Stack trace:', err.stack);

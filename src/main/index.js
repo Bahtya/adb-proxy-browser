@@ -539,6 +539,7 @@ function clearHistory() {
 }
 
 async function createWindow() {
+  perf.mark('createWindow() - creating BrowserWindow');
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -555,14 +556,17 @@ async function createWindow() {
     title: 'ADB Proxy Browser',
     show: false
   });
+  perf.mark('createWindow() - BrowserWindow created');
 
   // Load the renderer
+  perf.mark('createWindow() - loading index.html');
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
   // Push device state to renderer after it loads
   // ADB init runs in background, so device list may be empty initially
   // When ADB is ready, it will push updates via the init() callback
   mainWindow.webContents.on('did-finish-load', () => {
+    perf.mark('createWindow() - did-finish-load event');
     if (!mainWindow || mainWindow.isDestroyed()) return;
     // Push current state immediately (may be empty if ADB not ready)
     const devices = connectionManager ? connectionManager.adbManager.getDevices() : [];
@@ -575,12 +579,15 @@ async function createWindow() {
 
   // Show window when ready
   mainWindow.once('ready-to-show', () => {
+    perf.mark('createWindow() - ready-to-show, calling mainWindow.show()');
     mainWindow.show();
+    perf.mark('*** WINDOW VISIBLE TO USER ***');
   });
 
   // Create tray
   trayManager = new TrayManager(mainWindow, connectionManager);
   trayManager.create();
+  perf.mark('createWindow() - tray created');
 
   // Handle window close
   mainWindow.on('close', (event) => {
@@ -897,28 +904,47 @@ async function setBrowserProxy() {
   }
 }
 
+// Performance timing helper
+const perf = {
+  start: Date.now(),
+  mark(label) {
+    const elapsed = Date.now() - this.start;
+    console.log(`[PERF] +${elapsed}ms - ${label}`);
+    return elapsed;
+  }
+};
+
 // App lifecycle
 app.whenReady().then(async () => {
+  perf.mark('app.whenReady() triggered');
+
   // Setup IPC handlers first (before window creation)
   setupIpc();
+  perf.mark('setupIpc() complete');
 
   // Create connection manager (sync, fast)
   connectionManager = new ConnectionManager();
+  perf.mark('ConnectionManager created');
+
   terminalManager = new TerminalManager(connectionManager.adbManager);
+  perf.mark('TerminalManager created');
 
   // Create window immediately (don't wait for ADB)
+  const windowStart = Date.now();
   await createWindow();
+  perf.mark(`createWindow() complete (${Date.now() - windowStart}ms)`);
 
   // Initialize ADB in background (non-blocking)
+  const adbStart = Date.now();
   connectionManager.init().then(() => {
-    console.log('[App] ADB initialized in background');
+    perf.mark(`ADB init complete (${Date.now() - adbStart}ms)`);
     // Push device list to renderer once ADB is ready
     if (mainWindow && !mainWindow.isDestroyed()) {
       const devices = connectionManager.adbManager.getDevices();
       mainWindow.webContents.send('device:changed', devices);
     }
   }).catch(err => {
-    console.error('[App] ADB init error:', err.message);
+    perf.mark(`ADB init FAILED (${Date.now() - adbStart}ms): ${err.message}`);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('adb:error', err.message);
     }
