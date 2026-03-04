@@ -1,12 +1,30 @@
+// PERF: Capture absolute process start time before any require() calls.
+// This timestamp lets us measure the true cost of native module loading
+// (adbkit -> usb/libusb) which happens synchronously during require() and
+// is NOT captured by the perf.start timer defined later in this file.
+const _procStart = process.hrtime.bigint();
+const _procStartMs = Date.now();
+console.log(`[StartupDiag] index.js first line reached: ${new Date(_procStartMs).toISOString()} (hrtime: ${_procStart})`);
+
 const { app, BrowserWindow, ipcMain, session, dialog } = require('electron');
+console.log(`[StartupDiag] +${Math.round(Number(process.hrtime.bigint() - _procStart) / 1e6)}ms after electron require`);
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
+// NOTE: adb/index.js and adb/device.js both do top-level require('adbkit') which
+// transitively loads the 'usb' native addon (libusb). On Windows this is the
+// primary cause of the 15-20 second startup delay. We now defer that require
+// to the first call of getAdbManager() via lazy loading in adb/index.js.
 const { getAdbManager } = require('./adb');
+console.log(`[StartupDiag] +${Math.round(Number(process.hrtime.bigint() - _procStart) / 1e6)}ms after adb require (includes adbkit+usb native addon load)`);
 const TrayManager = require('./tray');
+// ssh2 also loads native crypto bindings - measure its cost separately
+const _ssh2Start = process.hrtime.bigint();
 const { Client: SSH2Client } = require('ssh2');
+console.log(`[StartupDiag] +${Math.round(Number(process.hrtime.bigint() - _procStart) / 1e6)}ms after ssh2 require (ssh2 alone: ${Math.round(Number(process.hrtime.bigint() - _ssh2Start) / 1e6)}ms)`);
 const { getLogger } = require('./logger');
 const log = getLogger();
+console.log(`[StartupDiag] +${Math.round(Number(process.hrtime.bigint() - _procStart) / 1e6)}ms - all top-level requires complete, entering module body`);
 
 // Single Instance Lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -927,9 +945,16 @@ async function setBrowserProxy() {
   }
 }
 
-// Performance timing helper
+// Performance timing helper.
+// IMPORTANT: start is pinned to _procStartMs (captured at the very first line of
+// this file, before any require() calls). This means all perf marks now show
+// time elapsed from TRUE process start, not from after native modules loaded.
+// Previously, perf.start = Date.now() here meant it was already ~19s into
+// startup by the time it was assigned (all that time was spent in require('adbkit')
+// loading the usb/libusb native addon). Every "+68ms" mark was actually
+// "+19068ms" from process launch.
 const perf = {
-  start: Date.now(),
+  start: _procStartMs,
   marks: [],
   mark(label) {
     const elapsed = Date.now() - this.start;
@@ -942,7 +967,7 @@ const perf = {
   summary() {
     const total = Date.now() - this.start;
     const lines = this.marks.map(m => `  +${String(m.elapsed).padStart(5)}ms (${String(m.delta).padStart(4)}ms) ${m.label}`);
-    const text = `Startup completed in ${total}ms\n${lines.join('\n')}`;
+    const text = `Startup completed in ${total}ms (from process launch)\n${lines.join('\n')}`;
     log.info('Perf', text);
     return { total, marks: this.marks };
   }

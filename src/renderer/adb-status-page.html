@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADB Status</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8f9fa;
+      color: #202124;
+      height: 100vh;
+      overflow: auto;
+    }
+    .page { max-width: 600px; margin: 0 auto; padding: 48px 24px 32px; }
+    h1 { font-size: 22px; font-weight: 500; margin-bottom: 6px; text-align: center; }
+    .subtitle { font-size: 13px; color: #5f6368; text-align: center; margin-bottom: 32px; }
+
+    .device-panel {
+      background: #fff;
+      border: 1px solid #e8eaed;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .device-panel h3 {
+      font-size: 13px;
+      font-weight: 500;
+      color: #5f6368;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+    .device-info { font-size: 14px; }
+    .device-status { color: #5f6368; }
+    .device-status.connected { color: #1e8e3e; font-weight: 500; }
+    .device-type {
+      display: inline-block;
+      background: #e8f0fe;
+      color: #1a73e8;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-left: 8px;
+    }
+
+    .control-panel {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    .btn-connect {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 32px;
+      font-size: 15px;
+      font-weight: 500;
+      border: none;
+      border-radius: 24px;
+      cursor: pointer;
+      background: #1a73e8;
+      color: #fff;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .btn-connect:hover { background: #1557b0; box-shadow: 0 2px 8px rgba(26,115,232,0.3); }
+    .btn-connect.connected { background: #ea4335; }
+    .btn-connect.connected:hover { background: #c5221f; box-shadow: 0 2px 8px rgba(234,67,53,0.3); }
+    .btn-connect:disabled { opacity: 0.6; cursor: default; box-shadow: none; }
+
+    .quick-settings {
+      background: #fff;
+      border: 1px solid #e8eaed;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .quick-settings h3 {
+      font-size: 13px;
+      font-weight: 500;
+      color: #5f6368;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+    .setting-row + .setting-row { border-top: 1px solid #f1f3f4; }
+    .setting-row label { font-size: 13px; color: #3c4043; }
+    .setting-row input, .setting-row select {
+      width: 120px;
+      padding: 6px 10px;
+      border: 1px solid #dadce0;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      background: #fff;
+    }
+    .setting-row input:focus, .setting-row select:focus { border-color: #1a73e8; }
+
+    .instructions {
+      background: #fff;
+      border: 1px solid #e8eaed;
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .instructions h4 {
+      font-size: 13px;
+      font-weight: 500;
+      color: #5f6368;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+    .instructions ol {
+      padding-left: 20px;
+      font-size: 13px;
+      color: #3c4043;
+      line-height: 1.8;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>ADB Proxy Browser</h1>
+    <p class="subtitle">Browse through your phone's proxy connection</p>
+
+    <div class="device-panel">
+      <h3>Device</h3>
+      <div class="device-info" id="device-info">
+        <span class="device-status">No device detected</span>
+      </div>
+    </div>
+
+    <div class="control-panel">
+      <button class="btn-connect" id="btn-connect">
+        <svg viewBox="0 0 24 24" width="20" height="20">
+          <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+        </svg>
+        <span>Connect</span>
+      </button>
+    </div>
+
+    <div class="quick-settings">
+      <h3>Settings</h3>
+      <div class="setting-row">
+        <label>Local Port</label>
+        <input type="number" id="proxy-port" value="7890" min="1" max="65535">
+      </div>
+      <div class="setting-row">
+        <label>Phone Port</label>
+        <input type="number" id="remote-port" value="7890" min="1" max="65535">
+      </div>
+      <div class="setting-row">
+        <label>Proxy Type</label>
+        <select id="proxy-type">
+          <option value="http" selected>HTTP</option>
+          <option value="socks5">SOCKS5</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="instructions">
+      <h4>Quick Start</h4>
+      <ol>
+        <li>Connect Android phone via USB</li>
+        <li>Enable USB debugging</li>
+        <li>Run Clash or proxy app on phone</li>
+        <li>Enable "Allow LAN" in proxy app</li>
+        <li>Click Connect button</li>
+      </ol>
+    </div>
+  </div>
+
+  <script>
+    const btnConnect = document.getElementById('btn-connect');
+    const deviceInfo = document.getElementById('device-info');
+    const proxyPort = document.getElementById('proxy-port');
+    const remotePort = document.getElementById('remote-port');
+    const proxyType = document.getElementById('proxy-type');
+
+    // Request initial status
+    console.log('__ADB_GET_STATUS__');
+
+    btnConnect.addEventListener('click', () => {
+      if (btnConnect.classList.contains('connected')) {
+        console.log('__ADB_DISCONNECT__');
+      } else {
+        console.log('__ADB_CONNECT__');
+      }
+    });
+
+    // Config changes
+    function saveConfig() {
+      const config = {
+        localPort: parseInt(proxyPort.value) || 7890,
+        remotePort: parseInt(remotePort.value) || 7890,
+        proxyType: proxyType.value
+      };
+      console.log('__ADB_SET_CONFIG__:' + JSON.stringify(config));
+    }
+    proxyPort.addEventListener('change', saveConfig);
+    remotePort.addEventListener('change', saveConfig);
+    proxyType.addEventListener('change', saveConfig);
+
+    // Called by parent to push state updates
+    window.updateStatus = function(data) {
+      // Update device info
+      if (data.devices && data.devices.length > 0) {
+        const device = data.devices[0];
+        deviceInfo.innerHTML =
+          '<span class="device-status connected">Device: ' + device.id + '</span>' +
+          '<span class="device-type">' + (device.type || 'USB') + '</span>';
+      } else {
+        deviceInfo.innerHTML = '<span class="device-status">No device detected</span>';
+      }
+
+      // Update connect button
+      if (data.connected) {
+        btnConnect.innerHTML =
+          '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>' +
+          '<span>Disconnect</span>';
+        btnConnect.classList.add('connected');
+        btnConnect.disabled = false;
+      } else if (data.autoConnecting) {
+        btnConnect.innerHTML = '<span>Connecting...</span>';
+        btnConnect.classList.remove('connected');
+        btnConnect.disabled = true;
+      } else {
+        btnConnect.innerHTML =
+          '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>' +
+          '<span>Connect</span>';
+        btnConnect.classList.remove('connected');
+        btnConnect.disabled = false;
+      }
+
+      // Update config fields
+      if (data.config) {
+        proxyPort.value = data.config.localPort || 7890;
+        remotePort.value = data.config.remotePort || 7890;
+        proxyType.value = data.config.proxyType || 'http';
+      }
+    };
+  </script>
+</body>
+</html>

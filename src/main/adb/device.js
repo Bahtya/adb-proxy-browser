@@ -1,4 +1,4 @@
-const Adb = require('adbkit');
+// adbkit is NOT required at module load time — see lazy-load comment in adb/index.js.
 const EventEmitter = require('events');
 const path = require('path');
 const fs = require('fs');
@@ -80,6 +80,10 @@ class DeviceManager extends EventEmitter {
 
     try {
       const clientStart = Date.now();
+      // Lazy-load adbkit (and its usb/libusb native addon) only here at init time,
+      // not at module parse time. This is the same require that was moved from the
+      // top of this file.
+      const Adb = require('adbkit');
       this.client = Adb.createClient({
         bin: this.adbPath,
         host: '127.0.0.1', // Force IPv4
