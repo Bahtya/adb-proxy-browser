@@ -593,6 +593,10 @@ async function createWindow() {
 function setupIpc() {
   // ADB: Get devices
   ipcMain.handle('adb:getDevices', async () => {
+    if (!connectionManager || !connectionManager.adbManager) {
+      console.log('[IPC] getDevices called, but ADB not initialized yet');
+      return [];
+    }
     const devices = connectionManager.adbManager.getDevices();
     console.log('[IPC] getDevices called, returning:', devices.length, 'device(s)');
     return devices;
@@ -636,6 +640,9 @@ function setupIpc() {
 
   // Connection: Get status
   ipcMain.handle('connection:getStatus', () => {
+    if (!connectionManager) {
+      return { connected: false };
+    }
     return connectionManager.getStatus();
   });
 
@@ -706,11 +713,17 @@ function setupIpc() {
 
   // Config: Get
   ipcMain.handle('config:get', () => {
+    if (!connectionManager) {
+      return { localPort: 7890, remotePort: 7890, proxyType: 'http' };
+    }
     return connectionManager.getConfig();
   });
 
   // Config: Set
   ipcMain.handle('config:set', (event, config) => {
+    if (!connectionManager) {
+      return false;
+    }
     connectionManager.setConfig(config);
     return true;
   });
@@ -737,6 +750,9 @@ function setupIpc() {
 
   // ADB: Retry initialization
   ipcMain.handle('adb:retry', async () => {
+    if (!connectionManager) {
+      return { success: false, error: 'Connection manager not initialized' };
+    }
     try {
       await connectionManager.init();
       return { success: true };
