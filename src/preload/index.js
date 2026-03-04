@@ -58,5 +58,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getLogPath: () => ipcRenderer.invoke('log:getPath'),
   openLogFolder: () => ipcRenderer.invoke('log:openFolder'),
   clearLogs: () => ipcRenderer.invoke('log:clear'),
-  readLogs: (lines) => ipcRenderer.invoke('log:read', lines)
+  readLogs: (lines) => ipcRenderer.invoke('log:read', lines),
+
+  // Clipboard sync
+  getClipboardSyncEnabled: () => ipcRenderer.invoke('clipboard:getEnabled'),
+  setClipboardSyncEnabled: (enabled) => ipcRenderer.invoke('clipboard:setEnabled', enabled)
 });
