@@ -830,6 +830,9 @@ function setupIpc() {
 
   // Terminal: Connect
   ipcMain.handle('terminal:connect', async (event, options) => {
+    if (!terminalManager) {
+      throw new Error('ADB not initialized yet. Please wait and try again.');
+    }
     try {
       // Prompt for credentials if not provided
       if (!options.username || !options.password) {
@@ -854,6 +857,9 @@ function setupIpc() {
 
   // Terminal: Write
   ipcMain.handle('terminal:write', async (event, data) => {
+    if (!terminalManager) {
+      throw new Error('ADB not initialized yet');
+    }
     try {
       return await terminalManager.write(data);
     } catch (err) {
@@ -864,6 +870,9 @@ function setupIpc() {
 
   // Terminal: Resize
   ipcMain.handle('terminal:resize', async (event, cols, rows) => {
+    if (!terminalManager) {
+      return false;
+    }
     try {
       return await terminalManager.resize(cols, rows);
     } catch (err) {
@@ -874,6 +883,9 @@ function setupIpc() {
 
   // Terminal: Disconnect
   ipcMain.handle('terminal:disconnect', async () => {
+    if (!terminalManager) {
+      return true;
+    }
     try {
       return await terminalManager.disconnect();
     } catch (err) {
