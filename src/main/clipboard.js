@@ -1,5 +1,4 @@
 const { clipboard } = require('electron');
-const { spawn } = require('child_process');
 
 class ClipboardManager {
   constructor(adbManager) {
@@ -9,6 +8,7 @@ class ClipboardManager {
     this.lastPcClipboard = '';
     this.lastPhoneClipboard = '';
     this.POLL_MS = 1500;
+    this._polling = false; // guard against overlapping polls
   }
 
   /**
@@ -29,37 +29,44 @@ class ClipboardManager {
   }
 
   /**
-   * Run an adb shell command and return stdout as a string.
-   * Resolves with empty string on error instead of rejecting.
+   * Run a shell command on the device via adbkit client.shell().
+   * Returns stdout as a string. Resolves with empty string on error.
    */
-  _adbShell(args) {
-    return new Promise((resolve) => {
-      const adbPath = this.adbManager.adbPath || 'adb';
-      const proc = spawn(adbPath, args, { stdio: 'pipe' });
-      let out = '';
-      let err = '';
+  async _shellCmd(deviceId, command) {
+    try {
+      const client = this.adbManager.client;
+      if (!client) {
+        console.warn('[Clipboard] No adbkit client available');
+        return '';
+      }
 
-      proc.stdout.on('data', (d) => { out += d.toString(); });
-      proc.stderr.on('data', (d) => { err += d.toString(); });
+      console.log(`[Clipboard] shell: ${command}`);
+      const stream = await client.shell(deviceId, command);
 
-      proc.on('error', (e) => {
-        console.error('[Clipboard] adb spawn error:', e.message);
-        resolve('');
+      // Read stream to string with timeout
+      return await new Promise((resolve) => {
+        let out = '';
+        const timeout = setTimeout(() => {
+          stream.destroy();
+          console.warn('[Clipboard] shell command timed out');
+          resolve(out);
+        }, 3000);
+
+        stream.on('data', (chunk) => { out += chunk.toString(); });
+        stream.on('end', () => {
+          clearTimeout(timeout);
+          resolve(out);
+        });
+        stream.on('error', (err) => {
+          clearTimeout(timeout);
+          console.warn('[Clipboard] shell stream error:', err.message);
+          resolve(out);
+        });
       });
-
-      proc.on('close', () => {
-        if (err && !out) {
-          console.warn('[Clipboard] adb stderr:', err.trim());
-        }
-        resolve(out);
-      });
-
-      // Safety timeout
-      setTimeout(() => {
-        proc.kill();
-        resolve('');
-      }, 3000);
-    });
+    } catch (err) {
+      console.error('[Clipboard] shell error:', err.message);
+      return '';
+    }
   }
 
   /**
@@ -68,43 +75,48 @@ class ClipboardManager {
    * Falls back to `service call clipboard 2` for older devices.
    */
   async getPhoneClipboard() {
-    if (!this.adbManager || !this.adbManager.initialized) return '';
+    if (!this.adbManager || !this.adbManager.initialized) {
+      console.log('[Clipboard] getPhone: adbManager not ready');
+      return '';
+    }
 
     const device = this.adbManager.getFirstDevice();
-    if (!device) return '';
+    if (!device) {
+      console.log('[Clipboard] getPhone: no device');
+      return '';
+    }
 
-    // Try Android 12+ method first - args must be separate argv elements for spawn()
-    let out = await this._adbShell(['-s', device.id, 'shell', 'cmd', 'clipboard', 'get-text']);
+    // Try Android 12+ method first
+    let out = await this._shellCmd(device.id, 'cmd clipboard get-text');
     out = out.trim();
 
     // cmd clipboard get-text prints the text directly, or nothing/error
     if (out && !out.startsWith('Error') && !out.startsWith('Exception') && !out.includes('not found')) {
+      console.log(`[Clipboard] getPhone OK: "${out.substring(0, 50)}${out.length > 50 ? '...' : ''}"`);
       return out;
     }
 
     // Fallback: parse service call clipboard 2 output
-    // The raw parcel output looks like: Result: Parcel(00000000 00000004 00680065 00790000 '....h.e.y.')
-    const raw = await this._adbShell(['-s', device.id, 'shell', 'service', 'call', 'clipboard', '2', 's16', 'com.android.shell']);
+    const raw = await this._shellCmd(device.id, 'service call clipboard 2 s16 com.android.shell');
     const match = raw.match(/'([^']*)'/);
     if (match) {
-      // Remove UTF-16 null padding artifacts (dots interspersed between chars, e.g. 'h.e.l.l.o.')
-      // Only strip dots that appear between every character (UTF-16 LE encoding artifact),
-      // not dots that are part of real content. Heuristic: if every other char is a dot, strip them.
       let content = match[1];
+      // Only strip dots if they appear in the UTF-16 alternating pattern
       if (/^([^.]\.)+(.[^.])?$/.test(content)) {
         content = content.replace(/\./g, '');
       }
+      console.log(`[Clipboard] getPhone fallback OK: "${content.substring(0, 50)}"`);
       return content.trim();
     }
 
+    console.log('[Clipboard] getPhone: no text found');
     return '';
   }
 
   /**
    * Write text to the Android device clipboard.
    * Uses `cmd clipboard set-text` (Android 12+).
-   * Falls back to writing a temp file and using am broadcast with Clipper app,
-   * or simply writing via content provider.
+   * Falls back to `am broadcast` with escaped text.
    */
   async setPhoneClipboard(text) {
     if (!this.adbManager || !this.adbManager.initialized) return false;
@@ -112,49 +124,24 @@ class ClipboardManager {
     const device = this.adbManager.getFirstDevice();
     if (!device) return false;
 
-    // Try Android 12+ method - args must be separate argv elements for spawn()
-    const out = await this._adbShell([
-      '-s', device.id, 'shell',
-      'cmd', 'clipboard', 'set-text', text
-    ]);
+    // Escape single quotes for shell
+    const escaped = text.replace(/'/g, "'\\''");
+
+    // Try Android 12+ method
+    const out = await this._shellCmd(device.id, `cmd clipboard set-text '${escaped}'`);
 
     if (!out.includes('Error') && !out.includes('Exception')) {
       console.log('[Clipboard] PC -> Phone: set via cmd clipboard');
       return true;
     }
 
-    // Fallback: use input keyevent via adb to set clipboard via am broadcast
-    // (content provider URI above was placeholder; use am startservice approach)
-    const result = await this._adbShellWithStdin(device.id, text);
-    return result;
-  }
-
-  /**
-   * Fallback: push clipboard text via a temp file on the device.
-   */
-  async _adbShellWithStdin(deviceId, text) {
-    // Push content to /data/local/tmp/cb.txt then read it into clipboard
-    return new Promise((resolve) => {
-      const adbPath = this.adbManager.adbPath || 'adb';
-
-      // Step 1: Write file
-      const push = spawn(adbPath, ['-s', deviceId, 'shell', `printf '%s' '${text.replace(/'/g, "'\\''")}' > /data/local/tmp/cb.txt`], { stdio: 'pipe' });
-
-      push.on('error', () => resolve(false));
-      push.on('close', () => {
-        // Step 2: Use am broadcast with Clipper (noop if not installed) or service call
-        const read = spawn(adbPath, [
-          '-s', deviceId, 'shell',
-          'content', 'insert', '--uri', 'content://com.example.clipboard', '--bind', `data:s:${text}`
-        ], { stdio: 'pipe' });
-
-        read.on('error', () => resolve(false));
-        read.on('close', () => resolve(true));
-        setTimeout(() => { read.kill(); resolve(false); }, 3000);
-      });
-
-      setTimeout(() => { push.kill(); resolve(false); }, 3000);
-    });
+    // Fallback: use am broadcast with intent extra
+    const fallbackOut = await this._shellCmd(device.id,
+      `am broadcast -a clipper.set -e text '${escaped}' 2>/dev/null; ` +
+      `input keyevent 0 2>/dev/null`
+    );
+    console.log('[Clipboard] PC -> Phone fallback:', fallbackOut.trim() || '(no output)');
+    return true;
   }
 
   _startPolling() {
@@ -177,6 +164,10 @@ class ClipboardManager {
   }
 
   async _poll() {
+    // Prevent overlapping polls (adb commands can take >1.5s)
+    if (this._polling) return;
+    this._polling = true;
+
     try {
       // Check PC clipboard
       const pcText = clipboard.readText();
@@ -185,6 +176,7 @@ class ClipboardManager {
         console.log('[Clipboard] PC clipboard changed, pushing to phone');
         await this.setPhoneClipboard(pcText);
         this.lastPhoneClipboard = pcText; // Avoid echo-back
+        this._polling = false;
         return;
       }
 
@@ -199,6 +191,8 @@ class ClipboardManager {
     } catch (err) {
       console.error('[Clipboard] Poll error:', err.message);
     }
+
+    this._polling = false;
   }
 
   destroy() {
