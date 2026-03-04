@@ -2278,10 +2278,52 @@ function updateSettingsUI() {
 }
 
 // Open settings modal
-function openSettings() {
+async function openSettings() {
   updateSettingsUI();
   elements.settingsModal.classList.add('active');
   setupEnvCopyButtons();
+  setupLogButtons();
+  await updateLogPathUI();
+}
+
+async function updateLogPathUI() {
+  const logPathInput = document.getElementById('settings-log-path');
+  if (logPathInput) {
+    try {
+      const logPath = await window.electronAPI.getLogPath();
+      logPathInput.value = logPath;
+    } catch (err) {
+      logPathInput.value = 'Unable to get log path';
+    }
+  }
+}
+
+function setupLogButtons() {
+  const btnOpenLog = document.getElementById('btn-open-log-folder');
+  const btnClearLog = document.getElementById('btn-clear-logs');
+
+  if (btnOpenLog) {
+    btnOpenLog.onclick = async () => {
+      try {
+        await window.electronAPI.openLogFolder();
+      } catch (err) {
+        console.error('[Settings] Failed to open log folder:', err.message);
+      }
+    };
+  }
+
+  if (btnClearLog) {
+    btnClearLog.onclick = async () => {
+      try {
+        const result = await window.electronAPI.clearLogs();
+        if (result) {
+          await updateLogPathUI();
+        }
+      } catch (err) {
+        console.error('[Settings] Failed to clear logs:', err.message);
+      }
+    };
+  }
 }
 
 // Close settings modal

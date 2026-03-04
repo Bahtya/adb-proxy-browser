@@ -87,14 +87,14 @@
   "hotPaths": [
     {
       "path": "src/main/index.js",
-      "accessCount": 48,
-      "lastAccessed": 1772606639519,
+      "accessCount": 60,
+      "lastAccessed": 1772612937018,
       "type": "file"
     },
     {
       "path": "src/renderer/app.js",
-      "accessCount": 13,
-      "lastAccessed": 1772605608674,
+      "accessCount": 54,
+      "lastAccessed": 1772612874388,
       "type": "file"
     },
     {
@@ -104,27 +104,51 @@
       "type": "file"
     },
     {
+      "path": "src/renderer/index.html",
+      "accessCount": 7,
+      "lastAccessed": 1772612727021,
+      "type": "file"
+    },
+    {
       "path": "src/main/adb/device.js",
       "accessCount": 6,
       "lastAccessed": 1772606674531,
       "type": "file"
     },
     {
-      "path": "src/renderer/index.html",
-      "accessCount": 4,
-      "lastAccessed": 1772601030593,
+      "path": "src/renderer/new-tab-page.html",
+      "accessCount": 5,
+      "lastAccessed": 1772611678959,
       "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 4,
+      "lastAccessed": 1772612099639,
+      "type": "file"
+    },
+    {
+      "path": "src/preload/index.js",
+      "accessCount": 3,
+      "lastAccessed": 1772612694033,
+      "type": "file"
+    },
+    {
+      "path": "src/renderer",
+      "accessCount": 2,
+      "lastAccessed": 1772612560403,
+      "type": "directory"
+    },
+    {
+      "path": "src/renderer/styles.css",
+      "accessCount": 2,
+      "lastAccessed": 1772612734286,
+      "type": "directory"
     },
     {
       "path": "src/main/proxy/socks5.js",
       "accessCount": 1,
       "lastAccessed": 1772598532576,
-      "type": "file"
-    },
-    {
-      "path": "src/preload/index.js",
-      "accessCount": 1,
-      "lastAccessed": 1772598532613,
       "type": "file"
     },
     {
@@ -146,10 +170,10 @@
       "type": "file"
     },
     {
-      "path": "src/renderer/styles.css",
+      "path": "src/main/logger.js",
       "accessCount": 1,
-      "lastAccessed": 1772601038995,
-      "type": "directory"
+      "lastAccessed": 1772612611166,
+      "type": "file"
     }
   ],
   "userDirectives": []
