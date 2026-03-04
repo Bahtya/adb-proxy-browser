@@ -1364,7 +1364,7 @@ class TabManager {
             window.history = ${JSON.stringify(historyItems)};
             if (typeof renderBookmarks === 'function') renderBookmarks();
             if (typeof renderHistory === 'function') renderHistory();
-          `);
+          `).catch(() => {});
         } catch (err) {
           console.error('[createTab] Failed to inject data:', err.message);
         }
@@ -1925,7 +1925,7 @@ function setupEventListeners() {
             window.history = ${JSON.stringify(historyItems)};
             if (typeof renderBookmarks === 'function') renderBookmarks();
             if (typeof renderHistory === 'function') renderHistory();
-          `);
+          `).catch(() => {});
         } catch (err) {
           console.error('[Home] Failed to inject data:', err.message);
         }
@@ -2301,7 +2301,7 @@ function pushAdbStatusToWebview(webview) {
       if (typeof window.updateStatus === 'function') {
         window.updateStatus(${JSON.stringify(data)});
       }
-    `);
+    `).catch(() => {});
   } catch (err) {
     console.error('[pushAdbStatus] Failed:', err.message);
   }
