@@ -1,0 +1,14 @@
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"oh-my-claudecode:hud"}
+{"t":0,"agent":"a2ee900","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a41d1d6","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a3ca51a","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a84ceff","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a7afea9","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"affb8e1","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"oh-my-claudecode:skill"}
+{"t":0,"agent":"a2d048b","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"team"}
+{"t":0,"agent":"system","event":"mode_change","mode_from":"none","mode_to":"team"}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"oh-my-claudecode:team"}
+{"t":0,"agent":"a657a11","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a7d69fe","agent_type":"unknown","event":"agent_stop","success":true}

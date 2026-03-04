@@ -1,0 +1,156 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1772598393205,
+  "projectRoot": "/home/claude/adb-proxy-browser",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": "npm run start",
+    "scripts": {
+      "start": "electron .",
+      "build": "electron-builder",
+      "build:win": "electron-builder --win",
+      "build:mac": "electron-builder --mac",
+      "build:linux": "electron-builder --linux",
+      "debug:screenshot": "electron scripts/debug-screenshot.js",
+      "debug:auto": "electron scripts/debug-auto.js",
+      "test:browser": "electron scripts/test-browser-features.js"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "assets",
+      "scripts",
+      "src"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "assets": {
+      "path": "assets",
+      "purpose": "Static assets",
+      "fileCount": 1,
+      "lastAccessed": 1772598393172,
+      "keyFiles": [
+        "icon.svg"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 9,
+      "lastAccessed": 1772598393175,
+      "keyFiles": [
+        "auto-debug.js",
+        "debug-auto.js",
+        "debug-layout.js",
+        "debug-screenshot.js",
+        "test-browser-features.js"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1772598393191,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "src/main/index.js",
+      "accessCount": 48,
+      "lastAccessed": 1772606639519,
+      "type": "file"
+    },
+    {
+      "path": "src/renderer/app.js",
+      "accessCount": 13,
+      "lastAccessed": 1772605608674,
+      "type": "file"
+    },
+    {
+      "path": "package.json",
+      "accessCount": 8,
+      "lastAccessed": 1772606684340,
+      "type": "file"
+    },
+    {
+      "path": "src/main/adb/device.js",
+      "accessCount": 6,
+      "lastAccessed": 1772606674531,
+      "type": "file"
+    },
+    {
+      "path": "src/renderer/index.html",
+      "accessCount": 4,
+      "lastAccessed": 1772601030593,
+      "type": "file"
+    },
+    {
+      "path": "src/main/proxy/socks5.js",
+      "accessCount": 1,
+      "lastAccessed": 1772598532576,
+      "type": "file"
+    },
+    {
+      "path": "src/preload/index.js",
+      "accessCount": 1,
+      "lastAccessed": 1772598532613,
+      "type": "file"
+    },
+    {
+      "path": "src/main/adb/index.js",
+      "accessCount": 1,
+      "lastAccessed": 1772598532641,
+      "type": "file"
+    },
+    {
+      "path": "src/main/tray.js",
+      "accessCount": 1,
+      "lastAccessed": 1772598540363,
+      "type": "file"
+    },
+    {
+      "path": "src/main/adb/download.js",
+      "accessCount": 1,
+      "lastAccessed": 1772599246286,
+      "type": "file"
+    },
+    {
+      "path": "src/renderer/styles.css",
+      "accessCount": 1,
+      "lastAccessed": 1772601038995,
+      "type": "directory"
+    }
+  ],
+  "userDirectives": []
+}
