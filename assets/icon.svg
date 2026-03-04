@@ -1,1 +1,70 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="aiGradient" x1="0%" x2="100%" y1="0%" y2="100%"><stop offset="0%" style="stop-color:#818cf8"/><stop offset="100%" style="stop-color:#a78bfa"/></linearGradient><linearGradient id="androidGradient" x1="0%" x2="100%" y1="0%" y2="100%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="100%" style="stop-color:#22c55e"/></linearGradient><filter id="glow"><feGaussianBlur result="coloredBlur" stdDeviation="3"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect width="512" height="512" fill="#0f0a1f" rx="96"/><rect width="384" height="320" x="64" y="80" fill="#1a1430" stroke="#2d2450" stroke-width="4" rx="32"/><rect width="384" height="56" x="64" y="80" fill="#251e40" rx="32"/><rect width="384" height="32" x="64" y="104" fill="#251e40"/><circle cx="108" cy="108" r="10" fill="#ff5f57"/><circle cx="140" cy="108" r="10" fill="#febc2e"/><circle cx="172" cy="108" r="10" fill="#28c840"/><rect width="220" height="32" x="200" y="92" fill="#1a1430" rx="16"/><g filter="url(#glow)"><circle cx="144" cy="200" r="18" fill="url(#aiGradient)"/><circle cx="144" cy="280" r="18" fill="url(#aiGradient)"/><circle cx="224" cy="180" r="18" fill="url(#aiGradient)"/><circle cx="224" cy="240" r="18" fill="url(#aiGradient)"/><circle cx="224" cy="300" r="18" fill="url(#aiGradient)"/><circle cx="304" cy="180" r="18" fill="url(#aiGradient)"/><circle cx="304" cy="240" r="18" fill="url(#aiGradient)"/><circle cx="304" cy="300" r="18" fill="url(#aiGradient)"/><circle cx="384" cy="200" r="18" fill="url(#aiGradient)"/><circle cx="384" cy="280" r="18" fill="url(#aiGradient)"/></g><g stroke="#6366f1" stroke-width="2" opacity=".5"><line x1="162" x2="206" y1="200" y2="180"/><line x1="162" x2="206" y1="200" y2="240"/><line x1="162" x2="206" y1="280" y2="240"/><line x1="162" x2="206" y1="280" y2="300"/><line x1="242" x2="286" y1="180" y2="180"/><line x1="242" x2="286" y1="180" y2="240"/><line x1="242" x2="286" y1="240" y2="180"/><line x1="242" x2="286" y1="240" y2="240"/><line x1="242" x2="286" y1="240" y2="300"/><line x1="242" x2="286" y1="300" y2="240"/><line x1="242" x2="286" y1="300" y2="300"/><line x1="322" x2="366" y1="180" y2="200"/><line x1="322" x2="366" y1="240" y2="200"/><line x1="322" x2="366" y1="240" y2="280"/><line x1="322" x2="366" y1="300" y2="280"/></g><g><path fill="none" stroke="url(#androidGradient)" stroke-linecap="round" stroke-width="8" d="M160 420 Q256 380 352 420"/><circle cx="192" cy="408" r="8" fill="#4ade80" opacity=".9"/><circle cx="256" cy="392" r="8" fill="#4ade80" opacity=".9"/><circle cx="320" cy="408" r="8" fill="#4ade80" opacity=".9"/><path fill="none" stroke="#4ade80" stroke-linecap="round" stroke-linejoin="round" stroke-width="6" d="M200 440 L256 460 L312 440" opacity=".7"/></g><g><path fill="none" stroke="url(#androidGradient)" stroke-linecap="round" stroke-linejoin="round" stroke-width="6" d="M248 40 L256 24 L264 40"/><circle cx="256" cy="20" r="8" fill="url(#androidGradient)"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="blueBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5BB0FF"/>
+      <stop offset="100%" style="stop-color:#1A72E8"/>
+    </linearGradient>
+    <radialGradient id="globeSheen" cx="36%" cy="30%" r="58%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:0.30"/>
+      <stop offset="100%" style="stop-color:#FFFFFF;stop-opacity:0"/>
+    </radialGradient>
+    <radialGradient id="greenDot" cx="38%" cy="34%" r="62%">
+      <stop offset="0%" style="stop-color:#6EFFA8"/>
+      <stop offset="100%" style="stop-color:#1DB954"/>
+    </radialGradient>
+    <filter id="outerShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#1055B0" flood-opacity="0.30"/>
+    </filter>
+    <clipPath id="globeClip">
+      <circle cx="256" cy="256" r="216"/>
+    </clipPath>
+  </defs>
+
+  <!-- Card background -->
+  <rect width="512" height="512" rx="108" fill="#EEF4FF" filter="url(#outerShadow)"/>
+
+  <!-- Globe fill -->
+  <circle cx="256" cy="256" r="216" fill="url(#blueBg)"/>
+
+  <!-- Globe grid lines clipped inside sphere -->
+  <g clip-path="url(#globeClip)" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="8">
+    <!-- Equator -->
+    <line x1="40" y1="256" x2="472" y2="256"/>
+    <!-- Horizontal latitude bands -->
+    <ellipse cx="256" cy="256" rx="216" ry="76"/>
+    <ellipse cx="256" cy="256" rx="216" ry="152"/>
+    <!-- Prime meridian -->
+    <line x1="256" y1="40" x2="256" y2="472"/>
+    <!-- One off-center vertical meridian -->
+    <ellipse cx="256" cy="256" rx="108" ry="216"/>
+  </g>
+
+  <!-- Sheen overlay -->
+  <circle cx="256" cy="256" r="216" fill="url(#globeSheen)"/>
+
+  <!-- Globe border ring -->
+  <circle cx="256" cy="256" r="216" fill="none" stroke="#FFFFFF" stroke-opacity="0.20" stroke-width="5"/>
+
+  <!-- ADB proxy tunnel arc: a bold curved bridge line clipped to globe -->
+  <g clip-path="url(#globeClip)">
+    <path
+      d="M 108 330 Q 256 420 404 330"
+      fill="none"
+      stroke="#FFFFFF"
+      stroke-opacity="0.60"
+      stroke-width="16"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <!-- Left endpoint node (browser side) -->
+  <circle cx="108" cy="330" r="14" fill="#FFFFFF" opacity="0.80"/>
+
+  <!-- Right endpoint node (Android/phone side) - green accent -->
+  <!-- Soft glow halo -->
+  <circle cx="404" cy="330" r="34" fill="#22C55E" opacity="0.18"/>
+  <!-- Main green circle -->
+  <circle cx="404" cy="330" r="22" fill="url(#greenDot)"/>
+  <!-- Inner white pip -->
+  <circle cx="404" cy="330" r="8" fill="#FFFFFF" opacity="0.88"/>
+</svg>
