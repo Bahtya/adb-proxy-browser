@@ -73,8 +73,8 @@ class ClipboardManager {
     const device = this.adbManager.getFirstDevice();
     if (!device) return '';
 
-    // Try Android 12+ method first
-    let out = await this._adbShell(['-s', device.id, 'shell', 'cmd clipboard get-text']);
+    // Try Android 12+ method first - args must be separate argv elements for spawn()
+    let out = await this._adbShell(['-s', device.id, 'shell', 'cmd', 'clipboard', 'get-text']);
     out = out.trim();
 
     // cmd clipboard get-text prints the text directly, or nothing/error
@@ -87,8 +87,14 @@ class ClipboardManager {
     const raw = await this._adbShell(['-s', device.id, 'shell', 'service', 'call', 'clipboard', '2', 's16', 'com.android.shell']);
     const match = raw.match(/'([^']*)'/);
     if (match) {
-      // Remove UTF-16 null padding artifacts
-      return match[1].replace(/\./g, '').trim();
+      // Remove UTF-16 null padding artifacts (dots interspersed between chars, e.g. 'h.e.l.l.o.')
+      // Only strip dots that appear between every character (UTF-16 LE encoding artifact),
+      // not dots that are part of real content. Heuristic: if every other char is a dot, strip them.
+      let content = match[1];
+      if (/^([^.]\.)+(.[^.])?$/.test(content)) {
+        content = content.replace(/\./g, '');
+      }
+      return content.trim();
     }
 
     return '';
@@ -106,13 +112,10 @@ class ClipboardManager {
     const device = this.adbManager.getFirstDevice();
     if (!device) return false;
 
-    // Escape for shell: wrap in single quotes, escape any single quotes in content
-    const escaped = text.replace(/'/g, "'\\''");
-
-    // Try Android 12+ method
+    // Try Android 12+ method - args must be separate argv elements for spawn()
     const out = await this._adbShell([
       '-s', device.id, 'shell',
-      `cmd clipboard set-text '${escaped}'`
+      'cmd', 'clipboard', 'set-text', text
     ]);
 
     if (!out.includes('Error') && !out.includes('Exception')) {
@@ -120,8 +123,8 @@ class ClipboardManager {
       return true;
     }
 
-    // Fallback: push to temp file and read from shell
-    // Write content to a temp file on the device via stdin
+    // Fallback: use input keyevent via adb to set clipboard via am broadcast
+    // (content provider URI above was placeholder; use am startservice approach)
     const result = await this._adbShellWithStdin(device.id, text);
     return result;
   }

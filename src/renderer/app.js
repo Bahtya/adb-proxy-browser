@@ -599,6 +599,9 @@ class TerminalManager {
     // Fit terminal after showing
     setTimeout(() => this.fit(), 100);
 
+    // Resize webviews to fit the split layout
+    setTimeout(() => resizeWebviewsToContainer(), 50);
+
     // Auto-connect if not connected
     if (!this.connected) {
       await this.connect();
@@ -614,6 +617,9 @@ class TerminalManager {
     elements.btnTerminal.classList.remove('active');
     // Remove class from main-content
     document.querySelector('.main-content').classList.remove('terminal-open');
+
+    // Resize webviews to expand back to fullscreen
+    setTimeout(() => resizeWebviewsToContainer(), 50);
   }
 
   /**
@@ -628,6 +634,19 @@ class TerminalManager {
   }
 }
 
+// Resize all visible webviews to match the current browser container dimensions
+function resizeWebviewsToContainer() {
+  const container = elements.browserContainer;
+  if (!container) return;
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  if (w <= 0 || h <= 0) return;
+  document.querySelectorAll('webview').forEach(webview => {
+    webview.style.width = w + 'px';
+    webview.style.height = h + 'px';
+  });
+}
+
 // Setup terminal resize handle drag functionality
 function setupTerminalResize() {
   const handle = elements.terminalResizeHandle;
@@ -637,19 +656,6 @@ function setupTerminalResize() {
   let isDragging = false;
   let startX = 0;
   let startWidth = 0;
-
-  // Resize all visible webviews to match the current browser container dimensions
-  function resizeWebviewsToContainer() {
-    const container = elements.browserContainer;
-    if (!container) return;
-    const w = container.clientWidth;
-    const h = container.clientHeight;
-    if (w <= 0 || h <= 0) return;
-    document.querySelectorAll('webview').forEach(webview => {
-      webview.style.width = w + 'px';
-      webview.style.height = h + 'px';
-    });
-  }
 
   function stopDrag() {
     if (!isDragging) return;
