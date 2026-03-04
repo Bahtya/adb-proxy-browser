@@ -153,14 +153,14 @@ After installation, ensure adb is in your PATH or restart the application.`);
         }
       });
 
-      // Timeout after 10 seconds
+      // Timeout after 5 seconds (reduced from 10s for faster startup)
       setTimeout(() => {
         if (!resolved) {
           resolved = true;
           console.log('[ADB] Server start timeout, assuming server is already running');
           resolve();
         }
-      }, 10000);
+      }, 5000);
     });
   }
 
@@ -192,11 +192,10 @@ After installation, ensure adb is in your PATH or restart the application.`);
         this.tracking = false;
       });
 
-      // Initial device list - retry a few times as adb server may need a moment
+      // Initial device list - single retry with shorter delay
       await this.updateDeviceList();
       if (this.devices.length === 0) {
-        setTimeout(() => this.updateDeviceList(), 1000);
-        setTimeout(() => this.updateDeviceList(), 3000);
+        setTimeout(() => this.updateDeviceList(), 500);
       }
     } catch (err) {
       console.error('[ADB] Failed to start device tracking:', err.message);
