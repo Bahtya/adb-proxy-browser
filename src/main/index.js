@@ -945,7 +945,8 @@ app.whenReady().then(async () => {
   log.init();
 
   // Setup IPC handlers first (before window creation)
-  log.init();
+  setupIpc();
+  perf.mark('setupIpc() complete');
 
   // Create connection manager (sync, fast)
   connectionManager = new ConnectionManager();
