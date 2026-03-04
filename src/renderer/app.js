@@ -638,6 +638,33 @@ function setupTerminalResize() {
   let startX = 0;
   let startWidth = 0;
 
+  // Resize all visible webviews to match the current browser container dimensions
+  function resizeWebviewsToContainer() {
+    const container = elements.browserContainer;
+    if (!container) return;
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    if (w <= 0 || h <= 0) return;
+    document.querySelectorAll('webview').forEach(webview => {
+      webview.style.width = w + 'px';
+      webview.style.height = h + 'px';
+    });
+  }
+
+  function stopDrag() {
+    if (!isDragging) return;
+    isDragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+
+    // Save width preference
+    localStorage.setItem('terminal-width', panel.offsetWidth);
+
+    // Resize webviews to fill the new browser container size
+    resizeWebviewsToContainer();
+  }
+
   handle.addEventListener('mousedown', (e) => {
     isDragging = true;
     startX = e.clientX;
@@ -649,6 +676,9 @@ function setupTerminalResize() {
 
     // Prevent flex from overriding our width
     panel.style.setProperty('flex-shrink', '0', 'important');
+
+    // Capture pointer so mouseup fires even if released outside the window
+    handle.setPointerCapture(e.pointerId);
 
     e.preventDefault();
   });
@@ -669,19 +699,19 @@ function setupTerminalResize() {
     if (terminalManager.terminal) {
       terminalManager.fit();
     }
+
+    // Keep webviews sized to the shrinking browser container during drag
+    resizeWebviewsToContainer();
   });
 
-  document.addEventListener('mouseup', () => {
-    if (isDragging) {
-      isDragging = false;
-      handle.classList.remove('dragging');
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+  // mouseup on document handles normal releases inside the window
+  document.addEventListener('mouseup', stopDrag);
 
-      // Save width preference
-      localStorage.setItem('terminal-width', panel.offsetWidth);
-    }
-  });
+  // pointerup on handle catches releases outside the window (via pointer capture)
+  handle.addEventListener('pointerup', stopDrag);
+
+  // pointercancel also terminates the drag (e.g. Escape key, focus loss)
+  handle.addEventListener('pointercancel', stopDrag);
 
   // Restore saved width
   const savedWidth = localStorage.getItem('terminal-width');
