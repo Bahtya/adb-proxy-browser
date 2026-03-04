@@ -2405,6 +2405,10 @@ function updateSettingsUI() {
   const sshRemotePort = document.getElementById('settings-ssh-remote-port');
   if (sshPort) sshPort.value = state.config.sshPort || 8022;
   if (sshRemotePort) sshRemotePort.value = state.config.sshRemotePort || 8022;
+
+  // Clipboard sync toggle
+  const clipboardToggle = document.getElementById('settings-clipboard-sync');
+  if (clipboardToggle) clipboardToggle.checked = !!state.config.clipboardSync;
 }
 
 // Open settings modal
@@ -2472,6 +2476,13 @@ async function saveSettings() {
   const sshRemotePort = document.getElementById('settings-ssh-remote-port');
   if (sshPort) state.config.sshPort = parseInt(sshPort.value) || 8022;
   if (sshRemotePort) state.config.sshRemotePort = parseInt(sshRemotePort.value) || 8022;
+
+  // Clipboard sync
+  const clipboardToggle = document.getElementById('settings-clipboard-sync');
+  if (clipboardToggle) {
+    state.config.clipboardSync = clipboardToggle.checked;
+    await window.electronAPI.setClipboardSyncEnabled(clipboardToggle.checked);
+  }
 
   try {
     await window.electronAPI.setConfig(state.config);

@@ -24,6 +24,7 @@ const { Client: SSH2Client } = require('ssh2');
 console.log(`[StartupDiag] +${Math.round(Number(process.hrtime.bigint() - _procStart) / 1e6)}ms after ssh2 require (ssh2 alone: ${Math.round(Number(process.hrtime.bigint() - _ssh2Start) / 1e6)}ms)`);
 const { getLogger } = require('./logger');
 const log = getLogger();
+const ClipboardManager = require('./clipboard');
 console.log(`[StartupDiag] +${Math.round(Number(process.hrtime.bigint() - _procStart) / 1e6)}ms - all top-level requires complete, entering module body`);
 
 // Single Instance Lock
@@ -61,7 +62,8 @@ class ConnectionManager {
     this.config = {
       localPort: 7890,
       remotePort: 7890,
-      proxyType: 'http'
+      proxyType: 'http',
+      clipboardSync: false
     };
   }
 
@@ -152,6 +154,10 @@ class ConnectionManager {
    */
   setConfig(config) {
     this.config = { ...this.config, ...config };
+    // Sync clipboard manager state when clipboardSync config changes
+    if ('clipboardSync' in config && clipboardManager) {
+      clipboardManager.setEnabled(!!config.clipboardSync);
+    }
   }
 
   /**
@@ -457,6 +463,7 @@ let mainWindow = null;
 let connectionManager = null;
 let trayManager = null;
 let terminalManager = null;
+let clipboardManager = null;
 
 // History management
 const historyFile = path.join(app.getPath('userData'), 'url-history.json');
@@ -926,6 +933,22 @@ function setupIpc() {
   ipcMain.handle('log:read', (event, lines = 100) => {
     return log.readLogs(lines);
   });
+
+  // Clipboard: Get enabled state
+  ipcMain.handle('clipboard:getEnabled', () => {
+    return clipboardManager ? clipboardManager.isEnabled() : false;
+  });
+
+  // Clipboard: Set enabled state
+  ipcMain.handle('clipboard:setEnabled', (event, enabled) => {
+    if (connectionManager) {
+      connectionManager.setConfig({ clipboardSync: enabled });
+    }
+    if (clipboardManager) {
+      clipboardManager.setEnabled(enabled);
+    }
+    return true;
+  });
 }
 
 // Set proxy for browser window
@@ -991,6 +1014,9 @@ app.whenReady().then(async () => {
   terminalManager = new TerminalManager(connectionManager.adbManager);
   perf.mark('TerminalManager created');
 
+  clipboardManager = new ClipboardManager(connectionManager.adbManager);
+  perf.mark('ClipboardManager created');
+
   // Create window immediately (don't wait for ADB)
   const windowStart = Date.now();
   await createWindow();
@@ -1028,6 +1054,9 @@ app.on('activate', () => {
 
 app.on('before-quit', async () => {
   app.isQuitting = true;
+  if (clipboardManager) {
+    clipboardManager.destroy();
+  }
   if (connectionManager) {
     await connectionManager.disconnect();
   }
