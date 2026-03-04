@@ -108,6 +108,7 @@ Download the latest release for your platform:
 ---
 
 ## 📊 How It Works
+### Browser Traffic Flow
 
 ```
 ┌─────────────┐      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
@@ -119,6 +120,23 @@ Download the latest release for your platform:
                                                                ┌─────────────┐
                                                                │  Internet   │
                                                                └─────────────┘
+```
+
+---
+
+### Terminal SSH Flow
+```
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│  Terminal Panel │ ───▶ │   ADB Port      │ ───▶ │     Termux      │
+│   (xterm.js)    │      │   Forward       │      │    (sshd)       │
+│   Port: 8022    │      │  8022 → 8022    │      │   Port: 8022     │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+                                                          │
+                                                          ▼
+                                                   ┌─────────────────┐
+                                                   │  Android Shell   │
+                                                   │    (bash/zsh)     │
+                                                   └─────────────────┘
 ```
 
 ---
