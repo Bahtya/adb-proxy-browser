@@ -52,5 +52,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   terminalResize: (cols, rows) => ipcRenderer.invoke('terminal:resize', cols, rows),
   terminalDisconnect: () => ipcRenderer.invoke('terminal:disconnect'),
   onTerminalData: (callback) => ipcRenderer.on('terminal:data', (event, data) => callback(data)),
-  onTerminalClose: (callback) => ipcRenderer.on('terminal:close', (event, data) => callback(data))
+  onTerminalClose: (callback) => ipcRenderer.on('terminal:close', (event, data) => callback(data)),
+
+  // Log
+  getLogPath: () => ipcRenderer.invoke('log:getPath'),
+  openLogFolder: () => ipcRenderer.invoke('log:openFolder'),
+  clearLogs: () => ipcRenderer.invoke('log:clear'),
+  readLogs: (lines) => ipcRenderer.invoke('log:read', lines)
 });

@@ -5,6 +5,8 @@ const fs = require('fs');
 const { getAdbManager } = require('./adb');
 const TrayManager = require('./tray');
 const { Client: SSH2Client } = require('ssh2');
+const { getLogger } = require('./logger');
+const log = getLogger();
 
 // Single Instance Lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -885,6 +887,27 @@ function setupIpc() {
       throw err;
     }
   });
+
+  // Log: Get log path
+  ipcMain.handle('log:getPath', () => {
+    return log.getLogPath();
+  });
+
+  // Log: Open log folder
+  ipcMain.handle('log:openFolder', () => {
+    log.openLogFolder();
+    return true;
+  });
+
+  // Log: Clear logs
+  ipcMain.handle('log:clear', () => {
+    return log.clearLogs();
+  });
+
+  // Log: Read recent logs
+  ipcMain.handle('log:read', (event, lines = 100) => {
+    return log.readLogs(lines);
+  });
 }
 
 // Set proxy for browser window
@@ -918,9 +941,11 @@ const perf = {
 app.whenReady().then(async () => {
   perf.mark('app.whenReady() triggered');
 
+  // Initialize logger first
+  log.init();
+
   // Setup IPC handlers first (before window creation)
-  setupIpc();
-  perf.mark('setupIpc() complete');
+  log.init();
 
   // Create connection manager (sync, fast)
   connectionManager = new ConnectionManager();
