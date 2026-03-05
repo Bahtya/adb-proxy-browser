@@ -1,5 +1,6 @@
 // adbkit is NOT required at module load time — see lazy-load comment in adb/index.js.
 const EventEmitter = require('events');
+const net = require('net');
 
 class DeviceManager extends EventEmitter {
   constructor() {
@@ -7,6 +8,32 @@ class DeviceManager extends EventEmitter {
     this.client = null;
     this.devices = [];
     this.tracking = false;
+    this.serverRunning = false;
+  }
+
+  /**
+   * Check if ADB server is running on port 5037
+   */
+  _checkServerRunning() {
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      const timeout = 2000;
+
+      socket.setTimeout(timeout);
+      socket.on('connect', () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.on('timeout', () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.on('error', () => {
+        resolve(false);
+      });
+
+      socket.connect(5037, '127.0.0.1');
+    });
   }
 
   /**
@@ -20,6 +47,23 @@ class DeviceManager extends EventEmitter {
       console.log('[ADB] Already initialized, skipping');
       return;
     }
+
+    // First check if ADB server is running
+    console.log('[ADB] Checking if ADB server is running on port 5037...');
+    this.serverRunning = await this._checkServerRunning();
+
+    if (!this.serverRunning) {
+      console.warn('[ADB] ADB server not running on port 5037');
+      console.warn('[ADB] Please start ADB server manually:');
+      console.warn('[ADB]   - Run "adb start-server" in terminal');
+      console.warn('[ADB]   - Or open Android Studio which starts ADB automatically');
+      console.warn('[ADB]   - Or install Android Platform Tools and run adb');
+      // Don't throw - allow app to run without ADB, user can start server later
+      this._emitServerError();
+      return;
+    }
+
+    console.log('[ADB] ADB server is running');
 
     try {
       const clientStart = Date.now();
@@ -45,8 +89,29 @@ class DeviceManager extends EventEmitter {
     } catch (err) {
       console.error('[ADB] Failed to initialize:', err.message);
       console.error('[ADB] Stack trace:', err.stack);
-      throw err;
+      // Don't throw - allow app to continue
+      this._emitServerError(err.message);
     }
+  }
+
+  /**
+   * Emit server not running event for UI feedback
+   */
+  _emitServerError(message = 'ADB server not running') {
+    this.emit('server:error', {
+      message,
+      help: 'Please start ADB server:\n• Run "adb start-server" in terminal\n• Or open Android Studio\n• Or install Android Platform Tools'
+    });
+  }
+
+  /**
+   * Retry initialization (called when user starts ADB server)
+   */
+  async retryInit() {
+    console.log('[ADB] Retrying initialization...');
+    this.client = null;
+    this.tracking = false;
+    await this.init();
   }
 
   /**
@@ -54,6 +119,10 @@ class DeviceManager extends EventEmitter {
    */
   async startTracking() {
     if (this.tracking) return;
+    if (!this.client) {
+      console.warn('[ADB] Cannot start tracking - no client');
+      return;
+    }
 
     try {
       const tracker = await this.client.trackDevices();
@@ -84,7 +153,7 @@ class DeviceManager extends EventEmitter {
       }
     } catch (err) {
       console.error('[ADB] Failed to start device tracking:', err.message);
-      throw err;
+      this.tracking = false;
     }
   }
 
@@ -92,6 +161,8 @@ class DeviceManager extends EventEmitter {
    * Update the list of connected devices
    */
   async updateDeviceList() {
+    if (!this.client) return;
+
     try {
       this.devices = await this.client.listDevices();
       console.log(`[ADB] Device list updated: ${this.devices.length} device(s)`);
@@ -130,6 +201,13 @@ class DeviceManager extends EventEmitter {
   }
 
   /**
+   * Check if ADB server is running
+   */
+  isServerRunning() {
+    return this.serverRunning;
+  }
+
+  /**
    * Wait for a device to be connected
    */
   async waitForDevice(timeout = 30000) {
@@ -160,6 +238,7 @@ class DeviceManager extends EventEmitter {
       this.client = null;
       this.devices = [];
       this.tracking = false;
+      this.serverRunning = false;
     }
   }
 }
