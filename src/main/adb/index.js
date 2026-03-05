@@ -12,6 +12,7 @@ class AdbManager {
     this.deviceManager = null;
     this.portForwarder = null;
     this.initialized = false;
+    this.serverError = null;
   }
 
   /**
@@ -20,54 +21,84 @@ class AdbManager {
   async init() {
     if (this.initialized) return;
 
+    // Initialize device manager (it checks if ADB server is running)
+    this.deviceManager = getDeviceManager();
+
+    // Listen for server errors
+    this.deviceManager.on('server:error', (err) => {
+      this.serverError = err;
+      console.warn('[ADB] Server error:', err.message);
+    });
+
     try {
-      // Lazy-load adbkit here (not at module top-level) to avoid loading the
-      // usb/libusb native addon before the window is visible. This is the
-      // single most impactful optimization for Windows startup time.
-      const Adb = require('adbkit');
-
-      // Create ADB client — adbkit manages the ADB server internally,
-      // no external adb binary needed.
-      this.client = Adb.createClient({
-        host: '127.0.0.1',
-        port: 5037
-      });
-
-      // Initialize device manager
-      this.deviceManager = getDeviceManager();
+      // This will check if ADB server is running before loading adbkit
       await this.deviceManager.init();
+
+      // If server is not running, deviceManager.client will be null
+      if (!this.deviceManager.client) {
+        console.warn('[ADB] ADB server not available, running in offline mode');
+        return;
+      }
+
+      this.client = this.deviceManager.client;
 
       // Initialize port forwarder with client
       this.portForwarder = new PortForwarder(this.client);
 
       this.initialized = true;
+      this.serverError = null;
       console.log('[ADB] Manager initialized successfully');
     } catch (err) {
       console.error('[ADB] Failed to initialize:', err.message);
-      throw err;
+      // Don't throw - allow app to continue in offline mode
     }
+  }
+
+  /**
+   * Retry initialization after user starts ADB server
+   */
+  async retry() {
+    console.log('[ADB] Retrying initialization...');
+    this.initialized = false;
+    this.serverError = null;
+    await this.init();
+    return this.initialized;
+  }
+
+  /**
+   * Check if ADB is ready
+   */
+  isReady() {
+    return this.initialized && this.deviceManager && this.deviceManager.isServerRunning();
+  }
+
+  /**
+   * Get server error if any
+   */
+  getServerError() {
+    return this.serverError;
   }
 
   /**
    * Get connected devices
    */
   getDevices() {
-    return this.deviceManager.getDevices();
+    return this.deviceManager ? this.deviceManager.getDevices() : [];
   }
 
   /**
    * Get first connected device
    */
   getFirstDevice() {
-    return this.deviceManager.getFirstDevice();
+    return this.deviceManager ? this.deviceManager.getFirstDevice() : null;
   }
 
   /**
    * Create port forward
    */
   async forward(localPort, remotePort, deviceId = null) {
-    if (!this.initialized) {
-      throw new Error('ADB manager not initialized');
+    if (!this.initialized || !this.portForwarder) {
+      throw new Error('ADB not ready. Please start ADB server first.');
     }
 
     const device = deviceId
@@ -85,8 +116,8 @@ class AdbManager {
    * Remove port forward
    */
   async removeForward(localPort, deviceId = null) {
-    if (!this.initialized) {
-      throw new Error('ADB manager not initialized');
+    if (!this.initialized || !this.portForwarder) {
+      throw new Error('ADB not ready');
     }
 
     const device = deviceId
@@ -104,7 +135,7 @@ class AdbManager {
    * Remove all forwards for current device
    */
   async removeAllForwards(deviceId = null) {
-    if (!this.initialized) return;
+    if (!this.initialized || !this.portForwarder) return;
 
     const device = deviceId
       ? this.deviceManager.getDeviceById(deviceId)
@@ -119,8 +150,8 @@ class AdbManager {
    * Create SSH port forward (local:8022 -> phone:8022 by default for Termux)
    */
   async forwardSSH(localPort = 8022, deviceId = null, remotePort = 8022) {
-    if (!this.initialized) {
-      throw new Error('ADB manager not initialized');
+    if (!this.initialized || !this.portForwarder) {
+      throw new Error('ADB not ready. Please start ADB server first.');
     }
 
     const device = deviceId
@@ -138,7 +169,7 @@ class AdbManager {
    * Remove SSH port forward
    */
   async removeSSHForward(localPort = 8022, deviceId = null) {
-    if (!this.initialized) return;
+    if (!this.initialized || !this.portForwarder) return;
 
     const device = deviceId
       ? this.deviceManager.getDeviceById(deviceId)
@@ -153,15 +184,27 @@ class AdbManager {
    * Subscribe to device events
    */
   onDeviceConnected(callback) {
-    this.deviceManager.on('device:connected', callback);
+    if (this.deviceManager) {
+      this.deviceManager.on('device:connected', callback);
+    }
   }
 
   onDeviceDisconnected(callback) {
-    this.deviceManager.on('device:disconnected', callback);
+    if (this.deviceManager) {
+      this.deviceManager.on('device:disconnected', callback);
+    }
   }
 
   onDevicesUpdated(callback) {
-    this.deviceManager.on('devices:updated', callback);
+    if (this.deviceManager) {
+      this.deviceManager.on('devices:updated', callback);
+    }
+  }
+
+  onServerError(callback) {
+    if (this.deviceManager) {
+      this.deviceManager.on('server:error', callback);
+    }
   }
 
   /**
@@ -176,6 +219,7 @@ class AdbManager {
     }
     this.client = null;
     this.initialized = false;
+    this.serverError = null;
   }
 }
 

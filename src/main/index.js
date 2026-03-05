@@ -1027,18 +1027,33 @@ app.whenReady().then(async () => {
   // Initialize ADB in background (non-blocking)
   const adbStart = Date.now();
   connectionManager.init().then(() => {
-    perf.mark(`ADB init complete (${Date.now() - adbStart}ms)`);
-    perf.summary(); // Log full startup summary (ADB ready)
-    // Push device list to renderer once ADB is ready
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      const devices = connectionManager.adbManager.getDevices();
-      mainWindow.webContents.send('device:changed', devices);
+    const adbManager = connectionManager.adbManager;
+    if (adbManager.isReady()) {
+      perf.mark(`ADB init complete (${Date.now() - adbStart}ms)`);
+      perf.summary(); // Log full startup summary (ADB ready)
+      // Push device list to renderer once ADB is ready
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const devices = adbManager.getDevices();
+        mainWindow.webContents.send('device:changed', devices);
+      }
+    } else {
+      // ADB server not running - inform renderer
+      const serverError = adbManager.getServerError();
+      const msg = serverError ? serverError.message : 'ADB server not running';
+      perf.mark(`ADB init skipped (${Date.now() - adbStart}ms): ${msg}`);
+      perf.summary();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('adb:error', {
+          message: msg,
+          help: serverError ? serverError.help : 'Please start ADB server manually'
+        });
+      }
     }
   }).catch(err => {
     perf.mark(`ADB init FAILED (${Date.now() - adbStart}ms): ${err.message}`);
     perf.summary(); // Log full startup summary (ADB failed)
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('adb:error', err.message);
+      mainWindow.webContents.send('adb:error', { message: err.message });
     }
   });
 });
