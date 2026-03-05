@@ -1,4 +1,4 @@
-const { getDeviceManager, findAdbPath } = require('./device');
+const { getDeviceManager } = require('./device');
 const PortForwarder = require('./forward');
 // adbkit is NOT required at module load time. It is lazy-loaded inside init()
 // because adbkit transitively pulls in the 'usb' native addon (libusb), which
@@ -12,7 +12,6 @@ class AdbManager {
     this.deviceManager = null;
     this.portForwarder = null;
     this.initialized = false;
-    this.adbPath = null;
   }
 
   /**
@@ -22,17 +21,14 @@ class AdbManager {
     if (this.initialized) return;
 
     try {
-      // Get ADB path
-      this.adbPath = findAdbPath();
-
       // Lazy-load adbkit here (not at module top-level) to avoid loading the
       // usb/libusb native addon before the window is visible. This is the
       // single most impactful optimization for Windows startup time.
       const Adb = require('adbkit');
 
-      // Create ADB client with correct settings
+      // Create ADB client — adbkit manages the ADB server internally,
+      // no external adb binary needed.
       this.client = Adb.createClient({
-        bin: this.adbPath,
         host: '127.0.0.1',
         port: 5037
       });
@@ -41,8 +37,8 @@ class AdbManager {
       this.deviceManager = getDeviceManager();
       await this.deviceManager.init();
 
-      // Initialize port forwarder with client and adb path
-      this.portForwarder = new PortForwarder(this.client, this.adbPath);
+      // Initialize port forwarder with client
+      this.portForwarder = new PortForwarder(this.client);
 
       this.initialized = true;
       console.log('[ADB] Manager initialized successfully');
@@ -121,9 +117,6 @@ class AdbManager {
 
   /**
    * Create SSH port forward (local:8022 -> phone:8022 by default for Termux)
-   * @param {number} localPort - Local port (default: 8022)
-   * @param {string} deviceId - Device ID (optional)
-   * @param {number} remotePort - Remote SSH port on phone (default: 8022 for Termux)
    */
   async forwardSSH(localPort = 8022, deviceId = null, remotePort = 8022) {
     if (!this.initialized) {
@@ -138,14 +131,11 @@ class AdbManager {
       throw new Error('No device connected');
     }
 
-    // Forward local port to phone's SSH port (8022 for Termux by default)
     return this.portForwarder.forward(device.id, localPort, remotePort);
   }
 
   /**
    * Remove SSH port forward
-   * @param {number} localPort - Local port (default: 8022)
-   * @param {string} deviceId - Device ID (optional)
    */
   async removeSSHForward(localPort = 8022, deviceId = null) {
     if (!this.initialized) return;

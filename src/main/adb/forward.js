@@ -1,11 +1,9 @@
 const EventEmitter = require('events');
-const { spawn } = require('child_process');
 
 class PortForwarder extends EventEmitter {
-  constructor(client, adbPath) {
+  constructor(client) {
     super();
     this.client = client;
-    this.adbPath = adbPath;
     this.activeForwards = new Map(); // deviceId -> [{localPort, remotePort}]
   }
 
@@ -40,61 +38,46 @@ class PortForwarder extends EventEmitter {
   }
 
   /**
-   * Remove a port forward using adb command
+   * Remove a port forward using adbkit client
    * @param {string} deviceId - Device serial number
    * @param {number} localPort - Local port that was forwarded
    */
   async removeForward(deviceId, localPort) {
-    return new Promise((resolve, reject) => {
-      if (!this.adbPath) {
-        reject(new Error('ADB path not set'));
-        return;
-      }
+    if (!this.client) {
+      throw new Error('ADB client not initialized');
+    }
 
+    try {
       console.log(`[ADB] Removing forward: tcp:${localPort}`);
 
-      const proc = spawn(this.adbPath, ['forward', '--remove', `tcp:${localPort}`], {
-        stdio: 'pipe'
-      });
+      // Use adbkit's transport to send the remove-forward command
+      const transport = await this.client.transport(deviceId);
+      try {
+        await transport.send(`host:killforward:tcp:${localPort}`);
+        await transport.readAscii(4); // read OKAY/FAIL
+      } catch (e) {
+        // Ignore errors - forward may already be removed
+        console.log(`[ADB] Forward remove response: ${e.message || 'ok'}`);
+      } finally {
+        transport.end();
+      }
+    } catch (err) {
+      // If transport fails, the forward is likely already gone
+      console.log(`[ADB] Forward tcp:${localPort} not found or already removed`);
+    }
 
-      let stderr = '';
+    // Remove from tracking regardless
+    const forwards = this.activeForwards.get(deviceId);
+    if (forwards) {
+      const index = forwards.findIndex(f => f.localPort === localPort);
+      if (index !== -1) {
+        forwards.splice(index, 1);
+      }
+    }
 
-      proc.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-
-      proc.on('close', (code) => {
-        // Remove from tracking regardless of result
-        const forwards = this.activeForwards.get(deviceId);
-        if (forwards) {
-          const index = forwards.findIndex(f => f.localPort === localPort);
-          if (index !== -1) {
-            forwards.splice(index, 1);
-          }
-        }
-
-        if (code === 0) {
-          console.log(`[ADB] Port forward removed: ${deviceId} tcp:${localPort}`);
-          this.emit('forward:removed', { deviceId, localPort });
-          resolve(true);
-        } else {
-          // If forward doesn't exist, that's fine
-          if (stderr.includes('not found') || stderr.includes('error')) {
-            console.log(`[ADB] Forward tcp:${localPort} not found or already removed`);
-            resolve(true);
-          } else {
-            const error = new Error(`Failed to remove forward: ${stderr || 'Unknown error'}`);
-            console.error(`[ADB] ${error.message}`);
-            reject(error);
-          }
-        }
-      });
-
-      proc.on('error', (err) => {
-        console.error(`[ADB] Failed to remove port forward: ${err.message}`);
-        reject(err);
-      });
-    });
+    console.log(`[ADB] Port forward removed: ${deviceId} tcp:${localPort}`);
+    this.emit('forward:removed', { deviceId, localPort });
+    return true;
   }
 
   /**
@@ -105,7 +88,7 @@ class PortForwarder extends EventEmitter {
     const forwards = this.activeForwards.get(deviceId);
     if (!forwards || forwards.length === 0) return;
 
-    for (const forward of forwards) {
+    for (const forward of [...forwards]) {
       try {
         await this.removeForward(deviceId, forward.localPort);
       } catch (err) {

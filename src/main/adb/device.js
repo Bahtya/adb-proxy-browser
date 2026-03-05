@@ -1,55 +1,5 @@
 // adbkit is NOT required at module load time — see lazy-load comment in adb/index.js.
 const EventEmitter = require('events');
-const path = require('path');
-const fs = require('fs');
-const { getBundledAdbPath, hasBundledAdb } = require('./download');
-
-// Common ADB paths on different platforms
-const ADB_PATHS = {
-  win32: [
-    getBundledAdbPath(), // Check bundled adb first
-    path.join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
-    path.join(process.env.USERPROFILE || '', 'AppData', 'Local', 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
-    'C:\\Program Files\\Android\\Android Studio\\platform-tools\\adb.exe',
-    'C:\\Android\\platform-tools\\adb.exe',
-  ],
-  darwin: [
-    getBundledAdbPath(),
-    '/usr/local/bin/adb',
-    '/opt/homebrew/bin/adb',
-    path.join(process.env.HOME || '', 'Library', 'Android', 'sdk', 'platform-tools', 'adb'),
-  ],
-  linux: [
-    getBundledAdbPath(),
-    '/usr/bin/adb',
-    '/usr/local/bin/adb',
-    path.join(process.env.HOME || '', 'Android', 'Sdk', 'platform-tools', 'adb'),
-  ]
-};
-
-/**
- * Find ADB binary path
- */
-function findAdbPath() {
-  const platform = process.platform;
-  const paths = ADB_PATHS[platform] || [];
-
-  for (const adbPath of paths) {
-    try {
-      if (fs.existsSync(adbPath)) {
-        console.log(`[ADB] Found adb at: ${adbPath}`);
-        return adbPath;
-      }
-    } catch (e) {
-      // Ignore
-    }
-  }
-
-  // Fallback to 'adb' in PATH
-  // This works if adb is in system PATH
-  console.log('[ADB] ADB not found in known locations, trying system PATH');
-  return 'adb';
-}
 
 class DeviceManager extends EventEmitter {
   constructor() {
@@ -57,7 +7,6 @@ class DeviceManager extends EventEmitter {
     this.client = null;
     this.devices = [];
     this.tracking = false;
-    this.adbPath = null;
   }
 
   /**
@@ -72,30 +21,17 @@ class DeviceManager extends EventEmitter {
       return;
     }
 
-    // Find ADB
-    const findStart = Date.now();
-    this.adbPath = findAdbPath();
-    console.log(`[PERF] +${Date.now() - initStart}ms - findAdbPath() (${Date.now() - findStart}ms)`);
-    console.log('[ADB] Using ADB path:', this.adbPath);
-
     try {
       const clientStart = Date.now();
       // Lazy-load adbkit (and its usb/libusb native addon) only here at init time,
-      // not at module parse time. This is the same require that was moved from the
-      // top of this file.
+      // not at module parse time. This avoids loading the 'usb' native addon before
+      // the window is visible (15-20s on Windows for USB enumeration + AV scan).
       const Adb = require('adbkit');
       this.client = Adb.createClient({
-        bin: this.adbPath,
         host: '127.0.0.1', // Force IPv4
         port: 5037
       });
       console.log(`[PERF] +${Date.now() - initStart}ms - Adb.createClient() (${Date.now() - clientStart}ms)`);
-
-      // Try to start ADB server
-      console.log('[ADB] Starting ADB server...');
-      const serverStart = Date.now();
-      await this.startAdbServer();
-      console.log(`[PERF] +${Date.now() - initStart}ms - startAdbServer() (${Date.now() - serverStart}ms)`);
 
       // Start tracking devices
       console.log('[ADB] Starting device tracking...');
@@ -109,72 +45,8 @@ class DeviceManager extends EventEmitter {
     } catch (err) {
       console.error('[ADB] Failed to initialize:', err.message);
       console.error('[ADB] Stack trace:', err.stack);
-      throw new Error(`ADB not found. Please install Android Platform Tools:
-
-Windows: Download from https://developer.android.com/studio/releases/platform-tools
-Or install via Android Studio -> SDK Manager -> Platform Tools
-
-After installation, ensure adb is in your PATH or restart the application.`);
+      throw err;
     }
-  }
-
-  /**
-   * Start ADB server
-   */
-  async startAdbServer() {
-    return new Promise((resolve, reject) => {
-      const { spawn } = require('child_process');
-      console.log('[ADB] Starting ADB server...');
-      console.log('[ADB] Using adb path:', this.adbPath);
-
-      let resolved = false;
-      const adbProcess = spawn(this.adbPath, ['start-server'], {
-        stdio: 'pipe'
-      });
-
-      let output = '';
-
-      // Handle spawn errors (e.g., ENOENT when adb not found)
-      adbProcess.on('error', (err) => {
-        console.error('[ADB] Spawn error:', err.message);
-        if (!resolved) {
-          resolved = true;
-          // Don't reject - server might already be running from another process
-          console.log('[ADB] Continuing anyway, server might be running from another process');
-          resolve();
-        }
-      });
-
-      adbProcess.stdout.on('data', (data) => {
-        output += data.toString();
-      });
-
-      adbProcess.stderr.on('data', (data) => {
-        output += data.toString();
-      });
-
-      adbProcess.on('close', (code) => {
-        if (resolved) return;
-        resolved = true;
-        if (code === 0) {
-          console.log('[ADB] Server started successfully');
-          resolve();
-        } else {
-          console.error('[ADB] Server start failed with code:', code, 'output:', output);
-          // Still resolve - server might already be running
-          resolve();
-        }
-      });
-
-      // Timeout after 5 seconds (reduced from 10s for faster startup)
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          console.log('[ADB] Server start timeout, assuming server is already running');
-          resolve();
-        }
-      }, 5000);
-    });
   }
 
   /**
@@ -304,6 +176,5 @@ function getDeviceManager() {
 
 module.exports = {
   DeviceManager,
-  getDeviceManager,
-  findAdbPath
+  getDeviceManager
 };
