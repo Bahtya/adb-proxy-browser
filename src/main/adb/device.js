@@ -1,171 +1,309 @@
-// adbkit is NOT required at module load time — see lazy-load comment in adb/index.js.
+// Device manager using binary adb for server management + adbkit for device communication
 const EventEmitter = require('events');
 const net = require('net');
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const { getBundledAdbPath, hasBundledAdb } = require('./download');
 
+const ADB_SERVER_PORT = 5037;
+const HEALTH_CHECK_INTERVAL = 5000;
+
+// Platform-specific adb binary paths
+const ADB_PATHS = {
+  win32: [
+    getBundledAdbPath(),
+    path.join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
+    path.join(process.env.USERPROFILE || '', 'AppData', 'Local', 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
+    'C:\\Program Files\\Android\\Android Studio\\platform-tools\\adb.exe',
+    'C:\\Android\\platform-tools\\adb.exe',
+  ],
+  darwin: [
+    getBundledAdbPath(),
+    '/usr/local/bin/adb',
+    '/opt/homebrew/bin/adb',
+    path.join(process.env.HOME || '', 'Library', 'Android', 'sdk', 'platform-tools', 'adb'),
+  ],
+  linux: [
+    getBundledAdbPath(),
+    '/usr/bin/adb',
+    '/usr/local/bin/adb',
+    path.join(process.env.HOME || '', 'Android', 'Sdk', 'platform-tools', 'adb'),
+    path.join(process.env.HOME || '', 'Android/Sdk', 'platform-tools', 'adb'),
+  ]
+};
+
+/**
+ * Find adb binary in system paths
+ */
+function findAdbPath() {
+  const platform = process.platform;
+  const paths = ADB_PATHS[platform] || [];
+
+  for (const adbPath of paths) {
+    if (adbPath && fs.existsSync(adbPath)) {
+      console.log(`[ADB] Found adb at: ${adbPath}`);
+      return adbPath;
+    }
+  }
+
+  // Fallback to 'adb' in PATH
+  console.warn('[ADB] ADB not found in known locations, using system PATH');
+  return 'adb';
+}
+
+/**
+ * Device Manager class
+ * Manages ADB server lifecycle and device tracking
+ */
 class DeviceManager extends EventEmitter {
   constructor() {
     super();
     this.client = null;
     this.devices = [];
-    this.tracking = false;
-    this.serverRunning = false;
+    this.tracker = null;
+    this._adbPath = null;
+    this._serverRunning = false;
+    this._healthCheckInterval = null;
+    this._reconnecting = false;
   }
 
   /**
-   * Check if ADB server is running on port 5037
-   */
-  _checkServerRunning() {
-    return new Promise((resolve) => {
-      const socket = new net.Socket();
-      const timeout = 2000;
-
-      socket.setTimeout(timeout);
-      socket.on('connect', () => {
-        socket.destroy();
-        resolve(true);
-      });
-      socket.on('timeout', () => {
-        socket.destroy();
-        resolve(false);
-      });
-      socket.on('error', () => {
-        resolve(false);
-      });
-
-      socket.connect(5037, '127.0.0.1');
-    });
-  }
-
-  /**
-   * Initialize ADB client
+   * Initialize device manager
    */
   async init() {
-    const initStart = Date.now();
-    console.log(`[PERF] +0ms - ADB init() called`);
+    this._adbPath = findAdbPath();
 
-    if (this.client) {
-      console.log('[ADB] Already initialized, skipping');
-      return;
+    // Check if ADB server is already running
+    const isRunning = await this._checkServerRunning();
+
+    if (!isRunning) {
+      console.log('[ADB] ADB server not running, starting...');
+      const started = await this._startAdbServer();
+      if (!started) {
+        this.emit('server:error', { message: 'Failed to start ADB server' });
+        return;
+      }
+    } else {
+      console.log('[ADB] ADB server already running');
     }
 
-    // First check if ADB server is running
-    console.log('[ADB] Checking if ADB server is running on port 5037...');
-    this.serverRunning = await this._checkServerRunning();
-
-    if (!this.serverRunning) {
-      console.warn('[ADB] ADB server not running on port 5037');
-      console.warn('[ADB] Please start ADB server manually:');
-      console.warn('[ADB]   - Run "adb start-server" in terminal');
-      console.warn('[ADB]   - Or open Android Studio which starts ADB automatically');
-      console.warn('[ADB]   - Or install Android Platform Tools and run adb');
-      // Don't throw - allow app to run without ADB, user can start server later
-      this._emitServerError();
-      return;
-    }
-
-    console.log('[ADB] ADB server is running');
-
+    // Initialize adbkit client
     try {
-      const clientStart = Date.now();
-      // Lazy-load adbkit (and its usb/libusb native addon) only here at init time,
-      // not at module parse time. This avoids loading the 'usb' native addon before
-      // the window is visible (15-20s on Windows for USB enumeration + AV scan).
-      const Adb = require('adbkit');
-      this.client = Adb.createClient({
-        host: '127.0.0.1', // Force IPv4
-        port: 5037
-      });
-      console.log(`[PERF] +${Date.now() - initStart}ms - Adb.createClient() (${Date.now() - clientStart}ms)`);
+      const adbkit = require('@devicefarmer/adbkit').default || require('@devicefarmer/adbkit');
+      this.client = adbkit.createClient();
 
-      // Start tracking devices
-      console.log('[ADB] Starting device tracking...');
-      const trackStart = Date.now();
-      await this.startTracking();
-      console.log(`[PERF] +${Date.now() - initStart}ms - startTracking() (${Date.now() - trackStart}ms)`);
+      // Start device tracking
+      await this._startTracking();
 
-      // Log initial device count
-      console.log('[ADB] Initial device count:', this.devices.length);
-      console.log(`[PERF] +${Date.now() - initStart}ms - ADB init() COMPLETE`);
+      // Start health check
+      this._startHealthCheck();
+
+      this._serverRunning = true;
+      console.log('[ADB] Device manager initialized');
     } catch (err) {
-      console.error('[ADB] Failed to initialize:', err.message);
-      console.error('[ADB] Stack trace:', err.stack);
-      // Don't throw - allow app to continue
-      this._emitServerError(err.message);
+      console.error('[ADB] Failed to initialize adbkit:', err.message);
+      this.emit('server:error', { message: `ADB kit error: ${err.message}` });
     }
   }
 
   /**
-   * Emit server not running event for UI feedback
+   * Check if ADB server is running by connecting to port 5037
    */
-  _emitServerError(message = 'ADB server not running') {
-    this.emit('server:error', {
-      message,
-      help: 'Please start ADB server:\n• Run "adb start-server" in terminal\n• Or open Android Studio\n• Or install Android Platform Tools'
+  async _checkServerRunning() {
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        resolve(false);
+      }, 1000);
+
+      socket.connect(ADB_SERVER_PORT, '127.0.0.1', () => {
+        clearTimeout(timeout);
+        socket.end();
+        resolve(true);
+      });
+
+      socket.on('error', () => {
+        clearTimeout(timeout);
+        resolve(false);
+      });
     });
   }
 
   /**
-   * Retry initialization (called when user starts ADB server)
+   * Start ADB server using binary adb
    */
-  async retryInit() {
-    console.log('[ADB] Retrying initialization...');
-    this.client = null;
-    this.tracking = false;
-    await this.init();
+  async _startAdbServer() {
+    return new Promise((resolve) => {
+      console.log(`[ADB] Starting server with: ${this._adbPath} start-server`);
+
+      const proc = spawn(this._adbPath, ['start-server'], {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data) => { stdout += data.toString(); });
+      proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          console.log('[ADB] Server started successfully');
+          resolve(true);
+        } else {
+          console.error(`[ADB] Server start failed with code ${code}: ${stderr}`);
+          resolve(false);
+        }
+      });
+
+      proc.on('error', (err) => {
+        console.error(`[ADB] Failed to spawn adb: ${err.message}`);
+        this.emit('adb:error', {
+          message: 'ADB not found. Please install Android Platform Tools.',
+          help: 'Run "adb install-platform-tools" or install Android SDK.'
+        });
+        resolve(false);
+      });
+
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        if (!proc.killed) {
+          proc.kill();
+          console.log('[ADB] Server start timed out');
+          resolve(false);
+        }
+      }, 10000);
+    });
   }
 
   /**
-   * Start tracking device connections/disconnections
+   * Start periodic health check
    */
-  async startTracking() {
-    if (this.tracking) return;
-    if (!this.client) {
-      console.warn('[ADB] Cannot start tracking - no client');
-      return;
+  _startHealthCheck() {
+    if (this._healthCheckInterval) {
+      clearInterval(this._healthCheckInterval);
     }
+
+    this._healthCheckInterval = setInterval(async () => {
+      const isRunning = await this._checkServerRunning();
+
+      if (!isRunning && this._serverRunning) {
+        console.log('[ADB] Server died, attempting restart...');
+        this._serverRunning = false;
+        this.emit('server:dead');
+
+        await this._handleServerRestart();
+      } else if (isRunning && !this._serverRunning) {
+        console.log('[ADB] Server recovered');
+        this._serverRunning = true;
+        this.emit('server:started');
+      }
+    }, HEALTH_CHECK_INTERVAL);
+
+    console.log('[ADB] Health check started');
+  }
+
+  /**
+   * Stop health check
+   */
+  _stopHealthCheck() {
+    if (this._healthCheckInterval) {
+      clearInterval(this._healthCheckInterval);
+      this._healthCheckInterval = null;
+    }
+  }
+
+  /**
+   * Handle ADB server restart
+   */
+  async _handleServerRestart() {
+    if (this._reconnecting) return;
+    this._reconnecting = true;
 
     try {
-      const tracker = await this.client.trackDevices();
-      this.tracking = true;
-      console.log('[ADB] Device tracking started');
+      // Stop current tracking
+      if (this.tracker) {
+        try {
+          await this.tracker.end();
+        } catch (e) {
+          // Ignore
+        }
+        this.tracker = null;
+      }
 
-      tracker.on('add', (device) => {
-        console.log(`[ADB] Device connected: ${device.id}`);
-        this.emit('device:connected', device);
-        this.updateDeviceList();
-      });
+      // Restart server
+      const started = await this._startAdbServer();
+      if (started) {
+        this._serverRunning = true;
 
-      tracker.on('remove', (device) => {
-        console.log(`[ADB] Device disconnected: ${device.id}`);
-        this.emit('device:disconnected', device);
-        this.updateDeviceList();
-      });
-
-      tracker.on('end', () => {
-        console.log('[ADB] Device tracking ended');
-        this.tracking = false;
-      });
-
-      // Initial device list - single retry with shorter delay
-      await this.updateDeviceList();
-      if (this.devices.length === 0) {
-        setTimeout(() => this.updateDeviceList(), 500);
+        // Reinitialize adbkit and tracking
+        if (this.client) {
+          await this._startTracking();
+          this.emit('server:restarted');
+        }
       }
     } catch (err) {
+      console.error('[ADB] Restart failed:', err.message);
+    }
+
+    this._reconnecting = false;
+  }
+
+  /**
+   * Start device tracking via adbkit
+   */
+  async _startTracking() {
+    if (!this.client) return;
+
+    try {
+      this.tracker = await this.client.trackDevices();
+
+      this.tracker.on('add', (device) => {
+        console.log(`[ADB] Device connected: ${device.id} (${device.type})`);
+        this._updateDevices();
+        this.emit('device:connected', device);
+      });
+
+      this.tracker.on('remove', (device) => {
+        console.log(`[ADB] Device disconnected: ${device.id}`);
+        this._updateDevices();
+        this.emit('device:disconnected', device);
+      });
+
+      this.tracker.on('change', (device) => {
+        console.log(`[ADB] Device changed: ${device.id} (${device.type})`);
+        this._updateDevices();
+        this.emit('device:changed', device);
+      });
+
+      this.tracker.on('end', () => {
+        console.log('[ADB] Device tracking ended');
+        this.tracker = null;
+      });
+
+      this.tracker.on('error', (err) => {
+        console.error('[ADB] Tracker error:', err.message);
+      });
+
+      // Initial device list
+      await this._updateDevices();
+
+      console.log('[ADB] Device tracking started');
+    } catch (err) {
       console.error('[ADB] Failed to start device tracking:', err.message);
-      this.tracking = false;
     }
   }
 
   /**
-   * Update the list of connected devices
+   * Update device list
    */
-  async updateDeviceList() {
+  async _updateDevices() {
     if (!this.client) return;
 
     try {
       this.devices = await this.client.listDevices();
-      console.log(`[ADB] Device list updated: ${this.devices.length} device(s)`);
       this.emit('devices:updated', this.devices);
     } catch (err) {
       console.error('[ADB] Failed to list devices:', err.message);
@@ -173,24 +311,24 @@ class DeviceManager extends EventEmitter {
   }
 
   /**
-   * Get list of connected devices
+   * Check if ADB server is running
+   */
+  isServerRunning() {
+    return this._serverRunning;
+  }
+
+  /**
+   * Get all connected devices
    */
   getDevices() {
     return this.devices;
   }
 
   /**
-   * Check if any device is connected
-   */
-  hasDevice() {
-    return this.devices.length > 0;
-  }
-
-  /**
-   * Get the first connected device
+   * Get first connected device
    */
   getFirstDevice() {
-    return this.devices[0] || null;
+    return this.devices.find(d => d.type === 'device') || this.devices[0] || null;
   }
 
   /**
@@ -201,45 +339,25 @@ class DeviceManager extends EventEmitter {
   }
 
   /**
-   * Check if ADB server is running
-   */
-  isServerRunning() {
-    return this.serverRunning;
-  }
-
-  /**
-   * Wait for a device to be connected
-   */
-  async waitForDevice(timeout = 30000) {
-    if (this.hasDevice()) {
-      return this.getFirstDevice();
-    }
-
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.off('device:connected', onConnect);
-        reject(new Error('Timeout waiting for device'));
-      }, timeout);
-
-      const onConnect = (device) => {
-        clearTimeout(timer);
-        resolve(device);
-      };
-
-      this.once('device:connected', onConnect);
-    });
-  }
-
-  /**
-   * Close ADB client
+   * Close device manager
    */
   async close() {
-    if (this.client) {
-      this.client = null;
-      this.devices = [];
-      this.tracking = false;
-      this.serverRunning = false;
+    this._stopHealthCheck();
+
+    if (this.tracker) {
+      try {
+        await this.tracker.end();
+      } catch (e) {
+        // Ignore
+      }
+      this.tracker = null;
     }
+
+    this.client = null;
+    this.devices = [];
+    this._serverRunning = false;
+
+    console.log('[ADB] Device manager closed');
   }
 }
 
@@ -255,5 +373,6 @@ function getDeviceManager() {
 
 module.exports = {
   DeviceManager,
-  getDeviceManager
+  getDeviceManager,
+  findAdbPath
 };
