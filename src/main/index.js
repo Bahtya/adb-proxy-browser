@@ -1012,6 +1012,13 @@ app.whenReady().then(async () => {
   connectionManager = new ConnectionManager();
   perf.mark('ConnectionManager created');
 
+  connectionManager.adbManager.onDevicesUpdated((devices) => {
+    log.info('IPC', 'devices:updated push: devices=', devices.length);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('device:changed', devices);
+    }
+  });
+
   terminalManager = new TerminalManager(connectionManager.adbManager);
   perf.mark('TerminalManager created');
 
