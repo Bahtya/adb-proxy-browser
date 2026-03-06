@@ -28,6 +28,10 @@ const log = getLogger();
 const ClipboardManager = require('./clipboard');
 console.log(`[StartupDiag] +${Math.round(Number(process.hrtime.bigint() - _procStart) / 1e6)}ms - all top-level requires complete, entering module body`);
 
+// Enable Electron remote debugging so UI issues can be inspected via MCP/DevTools.
+app.commandLine.appendSwitch('remote-debugging-port', '9222');
+app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
+
 // Single Instance Lock
 const gotTheLock = app.requestSingleInstanceLock();
 
