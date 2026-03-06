@@ -12,6 +12,8 @@ const INITIAL_DEVICE_RETRY_COUNT = 6;
 const INITIAL_DEVICE_RETRY_DELAY_MS = 500;
 const BACKGROUND_DEVICE_REFRESH_COUNT = 15;
 const BACKGROUND_DEVICE_REFRESH_DELAY_MS = 2000;
+const SERVER_CHECK_RETRY_COUNT = 3;
+const SERVER_CHECK_RETRY_DELAY_MS = 250;
 
 // Platform-specific adb binary paths
 const ADB_PATHS = {
@@ -81,7 +83,7 @@ class DeviceManager extends EventEmitter {
     this._adbPath = findAdbPath();
 
     // Check if ADB server is already running
-    const isRunning = await this._checkServerRunning();
+    const isRunning = await this._checkServerRunningWithRetry();
 
     if (!isRunning) {
       console.log('[ADB] ADB server not running, starting...');
@@ -96,6 +98,16 @@ class DeviceManager extends EventEmitter {
     } else {
       console.log('[ADB] ADB server already running');
     }
+
+    this._serverRunning = true;
+    this._startHealthCheck();
+
+    // Prime the device list via `adb devices` before loading adbkit.
+    // adbkit pulls in the usb native addon on Windows, which can block the
+    // main process for a long time in packaged builds. The binary query is
+    // enough to surface an already-connected device to the UI immediately.
+    await this._updateDevicesWithRetry(INITIAL_DEVICE_RETRY_COUNT, INITIAL_DEVICE_RETRY_DELAY_MS);
+    this._scheduleBackgroundRefreshes();
 
     // Initialize adbkit client
     try {
@@ -115,15 +127,17 @@ class DeviceManager extends EventEmitter {
           );
         }
       }
-      this.client = adbkit.createClient();
+      this.client = adbkit.createClient({
+        bin: this._adbPath,
+        host: '127.0.0.1',
+        port: ADB_SERVER_PORT
+      });
 
-      // Start device tracking
-      await this._startTracking();
-
-      // Start health check
-      this._startHealthCheck();
-
-      this._serverRunning = true;
+      // Start adbkit tracking in the background so a slow tracker does not
+      // block packaged-app startup or initial device visibility.
+      this._startTracking().catch((trackingErr) => {
+        console.error('[ADB] Background tracking failed:', trackingErr.message);
+      });
       console.log('[ADB] Device manager initialized');
     } catch (err) {
       console.error('[ADB] Failed to initialize adbkit:', err.message);
@@ -153,6 +167,21 @@ class DeviceManager extends EventEmitter {
         resolve(false);
       });
     });
+  }
+
+  async _checkServerRunningWithRetry(attempts = SERVER_CHECK_RETRY_COUNT, delayMs = SERVER_CHECK_RETRY_DELAY_MS) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const running = await this._checkServerRunning();
+      if (running) {
+        return true;
+      }
+
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -185,7 +214,7 @@ class DeviceManager extends EventEmitter {
           finish({ ok: true });
         } else {
           // Some adb variants return non-zero while server is actually up.
-          const running = await this._checkServerRunning();
+          const running = await this._checkServerRunningWithRetry();
           if (running) {
             console.warn(`[ADB] start-server exited with code ${code}, but server is reachable`);
             finish({ ok: true });
@@ -220,11 +249,19 @@ class DeviceManager extends EventEmitter {
       });
 
       // Timeout after 10 seconds
-      const timeout = setTimeout(() => {
+      const timeout = setTimeout(async () => {
         if (!proc.killed) {
           proc.kill();
           console.log('[ADB] Server start timed out');
         }
+
+        const running = await this._checkServerRunningWithRetry();
+        if (running) {
+          console.warn('[ADB] start-server timed out, but server is reachable');
+          finish({ ok: true });
+          return;
+        }
+
         finish({
           ok: false,
           message: 'Failed to start ADB server (timeout)',
@@ -243,7 +280,7 @@ class DeviceManager extends EventEmitter {
     }
 
     this._healthCheckInterval = setInterval(async () => {
-      const isRunning = await this._checkServerRunning();
+      const isRunning = await this._checkServerRunningWithRetry();
 
       if (!isRunning && this._serverRunning) {
         console.log('[ADB] Server died, attempting restart...');
@@ -313,46 +350,36 @@ class DeviceManager extends EventEmitter {
   async _startTracking() {
     if (!this.client) return;
 
-    try {
-      this.tracker = await this.client.trackDevices();
+    this.tracker = await this.client.trackDevices();
 
-      this.tracker.on('add', (device) => {
-        console.log(`[ADB] Device connected: ${device.id} (${device.type})`);
-        this._updateDevices();
-        this.emit('device:connected', device);
-      });
+    this.tracker.on('add', (device) => {
+      console.log(`[ADB] Device connected: ${device.id} (${device.type})`);
+      this._updateDevices();
+      this.emit('device:connected', device);
+    });
 
-      this.tracker.on('remove', (device) => {
-        console.log(`[ADB] Device disconnected: ${device.id}`);
-        this._updateDevices();
-        this.emit('device:disconnected', device);
-      });
+    this.tracker.on('remove', (device) => {
+      console.log(`[ADB] Device disconnected: ${device.id}`);
+      this._updateDevices();
+      this.emit('device:disconnected', device);
+    });
 
-      this.tracker.on('change', (device) => {
-        console.log(`[ADB] Device changed: ${device.id} (${device.type})`);
-        this._updateDevices();
-        this.emit('device:changed', device);
-      });
+    this.tracker.on('change', (device) => {
+      console.log(`[ADB] Device changed: ${device.id} (${device.type})`);
+      this._updateDevices();
+      this.emit('device:changed', device);
+    });
 
-      this.tracker.on('end', () => {
-        console.log('[ADB] Device tracking ended');
-        this.tracker = null;
-      });
+    this.tracker.on('end', () => {
+      console.log('[ADB] Device tracking ended');
+      this.tracker = null;
+    });
 
-      this.tracker.on('error', (err) => {
-        console.error('[ADB] Tracker error:', err.message);
-      });
+    this.tracker.on('error', (err) => {
+      console.error('[ADB] Tracker error:', err.message);
+    });
 
-      // When adb has just started, listDevices() may briefly return empty even
-      // though a USB device is already authorized. Retry a few times so the UI
-      // does not get stuck on "No Devices" after startup.
-      await this._updateDevicesWithRetry(INITIAL_DEVICE_RETRY_COUNT, INITIAL_DEVICE_RETRY_DELAY_MS);
-      this._scheduleBackgroundRefreshes();
-
-      console.log('[ADB] Device tracking started');
-    } catch (err) {
-      console.error('[ADB] Failed to start device tracking:', err.message);
-    }
+    console.log('[ADB] Device tracking started');
   }
 
   async _updateDevicesWithRetry(maxAttempts, delayMs) {
@@ -374,33 +401,26 @@ class DeviceManager extends EventEmitter {
    * Update device list
    */
   async _updateDevices() {
-    if (!this.client) return this.devices;
+    let devices = await this._listDevicesViaAdbBinary();
+    if (devices.length > 0) {
+      this.devices = devices;
+      this.emit('devices:updated', this.devices);
+      return this.devices;
+    }
+
+    if (!this.client) {
+      this.devices = [];
+      this.emit('devices:updated', this.devices);
+      return this.devices;
+    }
 
     try {
-      let devices = await this.client.listDevices();
-
-      // adbkit can occasionally return an empty list during server/device warmup
-      // while `adb devices` already reports the device. Fall back to the binary
-      // query so the UI does not stay stuck on "No Devices".
-      if (devices.length === 0) {
-        const cliDevices = await this._listDevicesViaAdbBinary();
-        if (cliDevices.length > 0) {
-          console.warn(`[ADB] adbkit returned 0 devices, using adb binary result (${cliDevices.length})`);
-          devices = cliDevices;
-        }
-      }
-
+      devices = await this.client.listDevices();
       this.devices = devices;
       this.emit('devices:updated', this.devices);
       return this.devices;
     } catch (err) {
-      console.error('[ADB] Failed to list devices:', err.message);
-      const cliDevices = await this._listDevicesViaAdbBinary();
-      if (cliDevices.length > 0) {
-        console.warn(`[ADB] Recovered device list via adb binary after adbkit error (${cliDevices.length})`);
-        this.devices = cliDevices;
-        this.emit('devices:updated', this.devices);
-      }
+      console.error('[ADB] Failed to list devices via adbkit:', err.message);
       return this.devices;
     }
   }
@@ -476,7 +496,7 @@ class DeviceManager extends EventEmitter {
     const tick = async () => {
       this._backgroundRefreshTimeout = null;
 
-      if (!this.client || this.devices.length > 0 || this._backgroundRefreshRemaining <= 0) {
+      if (this.devices.length > 0 || this._backgroundRefreshRemaining <= 0) {
         return;
       }
 
@@ -503,6 +523,10 @@ class DeviceManager extends EventEmitter {
    */
   getDevices() {
     return this.devices;
+  }
+
+  getAdbPath() {
+    return this._adbPath;
   }
 
   /**
