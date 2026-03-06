@@ -18,6 +18,8 @@ const elements = {
   remotePort: document.getElementById('remote-port'),
   proxyType: document.getElementById('proxy-type'),
   btnSettings: document.getElementById('btn-settings'),
+  appVersionChip: document.getElementById('app-version-chip'),
+  appVersionText: document.getElementById('app-version-text'),
 
   // Modal
   settingsModal: document.getElementById('settings-modal'),
@@ -1791,6 +1793,18 @@ let currentSuggestions = [];
 async function init() {
   // Setup terminal resize handle
   setupTerminalResize();
+
+  try {
+    const version = await window.electronAPI.getAppVersion();
+    if (elements.appVersionChip) {
+      elements.appVersionChip.textContent = `v${version}`;
+    }
+    if (elements.appVersionText) {
+      elements.appVersionText.textContent = `Version ${version}`;
+    }
+  } catch (err) {
+    console.warn('Failed to load app version:', err);
+  }
 
   // Listen for ADB errors
   window.electronAPI.onAdbError((error) => {

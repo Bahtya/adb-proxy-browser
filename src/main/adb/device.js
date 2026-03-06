@@ -10,6 +10,8 @@ const ADB_SERVER_PORT = 5037;
 const HEALTH_CHECK_INTERVAL = 5000;
 const INITIAL_DEVICE_RETRY_COUNT = 6;
 const INITIAL_DEVICE_RETRY_DELAY_MS = 500;
+const BACKGROUND_DEVICE_REFRESH_COUNT = 15;
+const BACKGROUND_DEVICE_REFRESH_DELAY_MS = 2000;
 
 // Platform-specific adb binary paths
 const ADB_PATHS = {
@@ -68,6 +70,8 @@ class DeviceManager extends EventEmitter {
     this._serverRunning = false;
     this._healthCheckInterval = null;
     this._reconnecting = false;
+    this._backgroundRefreshTimeout = null;
+    this._backgroundRefreshRemaining = 0;
   }
 
   /**
@@ -343,6 +347,7 @@ class DeviceManager extends EventEmitter {
       // though a USB device is already authorized. Retry a few times so the UI
       // does not get stuck on "No Devices" after startup.
       await this._updateDevicesWithRetry(INITIAL_DEVICE_RETRY_COUNT, INITIAL_DEVICE_RETRY_DELAY_MS);
+      this._scheduleBackgroundRefreshes();
 
       console.log('[ADB] Device tracking started');
     } catch (err) {
@@ -369,14 +374,121 @@ class DeviceManager extends EventEmitter {
    * Update device list
    */
   async _updateDevices() {
-    if (!this.client) return;
+    if (!this.client) return this.devices;
 
     try {
-      this.devices = await this.client.listDevices();
+      let devices = await this.client.listDevices();
+
+      // adbkit can occasionally return an empty list during server/device warmup
+      // while `adb devices` already reports the device. Fall back to the binary
+      // query so the UI does not stay stuck on "No Devices".
+      if (devices.length === 0) {
+        const cliDevices = await this._listDevicesViaAdbBinary();
+        if (cliDevices.length > 0) {
+          console.warn(`[ADB] adbkit returned 0 devices, using adb binary result (${cliDevices.length})`);
+          devices = cliDevices;
+        }
+      }
+
+      this.devices = devices;
       this.emit('devices:updated', this.devices);
+      return this.devices;
     } catch (err) {
       console.error('[ADB] Failed to list devices:', err.message);
+      const cliDevices = await this._listDevicesViaAdbBinary();
+      if (cliDevices.length > 0) {
+        console.warn(`[ADB] Recovered device list via adb binary after adbkit error (${cliDevices.length})`);
+        this.devices = cliDevices;
+        this.emit('devices:updated', this.devices);
+      }
+      return this.devices;
     }
+  }
+
+  async _listDevicesViaAdbBinary() {
+    if (!this._adbPath) return [];
+
+    return new Promise((resolve) => {
+      const proc = spawn(this._adbPath, ['devices'], {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+      const finish = (devices) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(devices);
+      };
+
+      proc.stdout.on('data', (data) => { stdout += data.toString(); });
+      proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      proc.on('error', (err) => {
+        console.error('[ADB] Failed to run "adb devices":', err.message);
+        finish([]);
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0 && stderr.trim()) {
+          console.error(`[ADB] "adb devices" exited with code ${code}: ${stderr.trim()}`);
+          finish([]);
+          return;
+        }
+
+        finish(this._parseAdbDevicesOutput(stdout));
+      });
+
+      const timeout = setTimeout(() => {
+        if (!proc.killed) {
+          proc.kill();
+        }
+        console.warn('[ADB] "adb devices" timed out');
+        finish([]);
+      }, 5000);
+    });
+  }
+
+  _parseAdbDevicesOutput(output) {
+    return output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('List of devices attached'))
+      .map((line) => {
+        const parts = line.split(/\s+/);
+        if (parts.length < 2) return null;
+        return {
+          id: parts[0],
+          type: parts[1]
+        };
+      })
+      .filter(Boolean);
+  }
+
+  _scheduleBackgroundRefreshes() {
+    if (this.devices.length > 0 || this._backgroundRefreshTimeout) {
+      return;
+    }
+
+    this._backgroundRefreshRemaining = BACKGROUND_DEVICE_REFRESH_COUNT;
+    const tick = async () => {
+      this._backgroundRefreshTimeout = null;
+
+      if (!this.client || this.devices.length > 0 || this._backgroundRefreshRemaining <= 0) {
+        return;
+      }
+
+      this._backgroundRefreshRemaining -= 1;
+      await this._updateDevices();
+
+      if (this.devices.length === 0 && this._backgroundRefreshRemaining > 0) {
+        this._backgroundRefreshTimeout = setTimeout(tick, BACKGROUND_DEVICE_REFRESH_DELAY_MS);
+      }
+    };
+
+    this._backgroundRefreshTimeout = setTimeout(tick, BACKGROUND_DEVICE_REFRESH_DELAY_MS);
   }
 
   /**
@@ -412,6 +524,12 @@ class DeviceManager extends EventEmitter {
    */
   async close() {
     this._stopHealthCheck();
+
+    if (this._backgroundRefreshTimeout) {
+      clearTimeout(this._backgroundRefreshTimeout);
+      this._backgroundRefreshTimeout = null;
+      this._backgroundRefreshRemaining = 0;
+    }
 
     if (this.tracker) {
       try {
