@@ -755,6 +755,11 @@ function setupIpc() {
     return true;
   });
 
+  // App: Get running version
+  ipcMain.handle('app:getVersion', () => {
+    return app.getVersion();
+  });
+
   // ADB: Check if bundled ADB exists
   ipcMain.handle('adb:hasBundled', () => {
     const { hasBundledAdb } = require('./adb/download');

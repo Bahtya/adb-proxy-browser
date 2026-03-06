@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Config
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config) => ipcRenderer.invoke('config:set', config),
+  getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
 
   // History
   getHistory: () => ipcRenderer.invoke('history:getAll'),
