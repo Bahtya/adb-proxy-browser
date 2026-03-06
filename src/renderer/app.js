@@ -290,7 +290,14 @@ class TerminalManager {
     this.terminal.open(elements.terminalContainer);
 
     // Fit to container
-    setTimeout(() => this.fit(), 100);
+    setTimeout(() => {
+      this.fit();
+      this.focusTerminal();
+    }, 100);
+
+    elements.terminalContainer.addEventListener('click', () => {
+      this.focusTerminal();
+    });
 
     // Handle input
     this.terminal.onData((data) => {
@@ -342,6 +349,16 @@ class TerminalManager {
       } catch (e) {
         console.warn('Failed to fit terminal:', e);
       }
+    }
+  }
+
+  focusTerminal() {
+    if (!this.terminal) return;
+
+    try {
+      this.terminal.focus();
+    } catch (e) {
+      console.warn('Failed to focus terminal:', e);
     }
   }
 
@@ -584,7 +601,8 @@ class TerminalManager {
     this.terminal.clear();
     this.terminal.write(`\x1b[36m=== ${title} ===\x1b[0m\r\n`);
     if (mode === 'adb') {
-      this.terminal.write('\x1b[90mDirect interactive shell over adb.\x1b[0m\r\n\r\n');
+      this.terminal.write('\x1b[90mDirect interactive shell over adb.\x1b[0m\r\n');
+      this.terminal.write('\x1b[90mType directly in the terminal area after it opens.\x1b[0m\r\n\r\n');
     } else {
       this.terminal.write('\x1b[90mTermux SSH session over the adb tunnel.\x1b[0m\r\n\r\n');
     }
@@ -602,6 +620,7 @@ class TerminalManager {
     if (this.connected && this.connectedMode === this.mode) {
       this.updateStatus('connected');
       this.fit();
+      this.focusTerminal();
       return true;
     }
 
@@ -753,6 +772,7 @@ class TerminalManager {
       this.updateStatus('connected');
       this.terminal.write(`\r\n\x1b[32mSSH connected in ${elapsed}ms.\x1b[0m\r\n\r\n`);
       this.fit();
+      this.focusTerminal();
       return true;
     } catch (err) {
       this.connecting = false;
@@ -789,6 +809,7 @@ class TerminalManager {
       this.updateStatus('connected');
       this.terminal.write(`\r\n\x1b[32mADB shell connected in ${elapsed}ms.\x1b[0m\r\n\r\n`);
       this.fit();
+      this.focusTerminal();
       return true;
     } catch (err) {
       this.connecting = false;
@@ -839,7 +860,10 @@ class TerminalManager {
     document.querySelector('.main-content').classList.add('terminal-open');
 
     // Fit terminal after showing
-    setTimeout(() => this.fit(), 100);
+    setTimeout(() => {
+      this.fit();
+      this.focusTerminal();
+    }, 100);
 
     // Resize webviews to fit the split layout
     setTimeout(() => resizeWebviewsToContainer(), 50);
