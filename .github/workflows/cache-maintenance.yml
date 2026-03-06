@@ -1,0 +1,101 @@
+name: Cache Maintenance
+
+on:
+  schedule:
+    - cron: '30 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      keep_per_key:
+        description: How many recent caches to keep for each normalized key
+        type: choice
+        default: '2'
+        options:
+          - '1'
+          - '2'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  prune-caches:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      KEEP_PER_KEY: ${{ inputs.keep_per_key || '2' }}
+
+    steps:
+      - name: List caches
+        run: gh cache list --limit 1000 --json createdAt,id,key,lastAccessedAt,ref,sizeInBytes > caches.json
+
+      - name: Select stale caches
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          const keepCount = Number(process.env.KEEP_PER_KEY || '2');
+          const caches = JSON.parse(fs.readFileSync('caches.json', 'utf8'));
+          const groups = new Map();
+
+          const normalizeKey = (key) => key.replace(/-[0-9a-f]{32,}$/i, '');
+          const score = (cache) => new Date(cache.lastAccessedAt || cache.createdAt || 0).getTime();
+
+          for (const cache of caches) {
+            const groupKey = normalizeKey(cache.key);
+            if (!groups.has(groupKey)) {
+              groups.set(groupKey, []);
+            }
+            groups.get(groupKey).push(cache);
+          }
+
+          const stale = [];
+          const summary = [];
+
+          for (const [groupKey, items] of groups.entries()) {
+            items.sort((a, b) => score(b) - score(a));
+            const keep = items.slice(0, keepCount);
+            const remove = items.slice(keepCount);
+
+            summary.push(
+              `${groupKey}: keep ${keep.length}, delete ${remove.length}, total ${items.length}`,
+            );
+
+            stale.push(...remove);
+          }
+
+          fs.writeFileSync('stale-cache-ids.txt', stale.map((cache) => String(cache.id)).join('\n'));
+          fs.writeFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            [
+              '# Cache Maintenance',
+              '',
+              `Keep per normalized key: ${keepCount}`,
+              'Normalized key rule: strip trailing hex hash like `-f27f...`',
+              '',
+              `Total caches scanned: ${caches.length}`,
+              `Caches selected for deletion: ${stale.length}`,
+              '',
+              '## Groups',
+              ...summary.map((line) => `- ${line}`),
+            ].join('\n'),
+          );
+
+          console.log(`Caches scanned: ${caches.length}`);
+          console.log(`Caches selected for deletion: ${stale.length}`);
+          NODE
+
+      - name: Delete stale caches
+        shell: bash
+        run: |
+          if [ ! -s stale-cache-ids.txt ]; then
+            echo "No stale caches to delete"
+            exit 0
+          fi
+
+          while IFS= read -r cache_id; do
+            if [ -n "$cache_id" ]; then
+              echo "Deleting cache $cache_id"
+              gh cache delete "$cache_id"
+            fi
+          done < stale-cache-ids.txt

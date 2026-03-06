@@ -80,6 +80,15 @@ jobs:
           hash=$(node -e "const crypto = require('crypto'); const fs = require('fs'); const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8')); const normalizedPackages = Object.fromEntries(Object.entries(lock.packages || {}).map(([name, pkg]) => [name, { version: pkg.version, resolved: pkg.resolved, integrity: pkg.integrity, dependencies: pkg.dependencies, optionalDependencies: pkg.optionalDependencies, cpu: pkg.cpu, os: pkg.os, engines: pkg.engines, hasInstallScript: pkg.hasInstallScript }])); const normalizedLock = { lockfileVersion: lock.lockfileVersion, requires: lock.requires, packages: normalizedPackages, dependencies: lock.dependencies }; process.stdout.write(crypto.createHash('sha256').update(JSON.stringify(normalizedLock)).digest('hex'));")
           echo "value=$hash" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve build tool versions
+        id: build-tool-versions
+        shell: bash
+        run: |
+          versions=$(node -e "const lock = require('./package-lock.json'); const packages = lock.packages || {}; const values = { electron: packages['node_modules/electron']?.version || 'unknown', electron_builder: packages['node_modules/electron-builder']?.version || 'unknown' }; for (const [key, value] of Object.entries(values)) { console.log(key + '=' + value); }")
+          while IFS= read -r line; do
+            echo "$line" >> "$GITHUB_OUTPUT"
+          done <<< "$versions"
+
       - name: Get npm cache directory
         shell: bash
         id: npm-cache-dir
@@ -100,8 +109,9 @@ jobs:
           path: |
             ~\AppData\Local\electron\Cache
             ~\AppData\Local\electron-builder\Cache
-          key: ${{ runner.os }}-electron-${{ steps.dep-cache-key.outputs.value }}
+          key: ${{ runner.os }}-electron-${{ steps.build-tool-versions.outputs.electron }}-${{ steps.build-tool-versions.outputs.electron_builder }}
           restore-keys: |
+            ${{ runner.os }}-electron-${{ steps.build-tool-versions.outputs.electron }}-
             ${{ runner.os }}-electron-
 
       - name: Cache Electron binaries (Unix)
@@ -113,8 +123,9 @@ jobs:
             ~/.cache/electron-builder
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
-          key: ${{ runner.os }}-electron-${{ steps.dep-cache-key.outputs.value }}
+          key: ${{ runner.os }}-electron-${{ steps.build-tool-versions.outputs.electron }}-${{ steps.build-tool-versions.outputs.electron_builder }}
           restore-keys: |
+            ${{ runner.os }}-electron-${{ steps.build-tool-versions.outputs.electron }}-
             ${{ runner.os }}-electron-
 
       - name: Cache node-gyp (Windows)
