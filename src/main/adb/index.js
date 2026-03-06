@@ -9,10 +9,15 @@ const PortForwarder = require('./forward');
 class AdbManager {
   constructor() {
     this.client = null;
-    this.deviceManager = null;
+    this.deviceManager = getDeviceManager();
     this.portForwarder = null;
     this.initialized = false;
     this.serverError = null;
+
+    this.deviceManager.on('server:error', (err) => {
+      this.serverError = err;
+      console.warn('[ADB] Server error:', err.message);
+    });
   }
 
   /**
@@ -20,15 +25,6 @@ class AdbManager {
    */
   async init() {
     if (this.initialized) return;
-
-    // Initialize device manager (it checks if ADB server is running)
-    this.deviceManager = getDeviceManager();
-
-    // Listen for server errors
-    this.deviceManager.on('server:error', (err) => {
-      this.serverError = err;
-      console.warn('[ADB] Server error:', err.message);
-    });
 
     try {
       // This will check if ADB server is running before loading adbkit
