@@ -23,19 +23,46 @@ env:
   NODE_VERSION: '20'
 
 jobs:
+  resolve-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+      - name: Resolve build matrix
+        id: set-matrix
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DELIVERY_PROFILE: ${{ inputs.delivery_profile }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            profile="$DELIVERY_PROFILE"
+          else
+            profile="full"
+          fi
+
+          case "$profile" in
+            windows-only)
+              matrix='{"include":[{"os":"windows-latest","platform":"windows","build_command":"npx electron-builder --config electron-builder.yml --win --publish never"}]}'
+              ;;
+            fast)
+              matrix='{"include":[{"os":"windows-latest","platform":"windows","build_command":"npx electron-builder --config electron-builder.yml --win --publish never"},{"os":"ubuntu-latest","platform":"linux","build_command":"npx electron-builder --config electron-builder.yml --linux --publish never"}]}'
+              ;;
+            *)
+              matrix='{"include":[{"os":"windows-latest","platform":"windows","build_command":"npx electron-builder --config electron-builder.yml --win --publish never"},{"os":"macos-latest","platform":"macos","build_command":"npx electron-builder --config electron-builder.yml --mac --publish never"},{"os":"ubuntu-latest","platform":"linux","build_command":"npx electron-builder --config electron-builder.yml --linux --publish never"}]}'
+              ;;
+          esac
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: resolve-matrix
     runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
-      matrix:
-        include: ${{ fromJSON(
-          github.event_name == 'workflow_dispatch' && github.event.inputs.delivery_profile == 'windows-only' &&
-          '[{"os":"windows-latest","platform":"windows","build_command":"npx electron-builder --config electron-builder.yml --win --publish never","artifact_name":"windows-build","artifact_path":"dist/*.exe\\ndist/*.zip"}]' ||
-          github.event_name == 'workflow_dispatch' && github.event.inputs.delivery_profile == 'fast' &&
-          '[{"os":"windows-latest","platform":"windows","build_command":"npx electron-builder --config electron-builder.yml --win --publish never","artifact_name":"windows-build","artifact_path":"dist/*.exe\\ndist/*.zip"},{"os":"ubuntu-latest","platform":"linux","build_command":"npx electron-builder --config electron-builder.yml --linux --publish never","artifact_name":"linux-build","artifact_path":"dist/*.AppImage\\ndist/*.deb\\ndist/*.zip"}]' ||
-          '[{"os":"windows-latest","platform":"windows","build_command":"npx electron-builder --config electron-builder.yml --win --publish never","artifact_name":"windows-build","artifact_path":"dist/*.exe\\ndist/*.zip"},{"os":"macos-latest","platform":"macos","build_command":"npx electron-builder --config electron-builder.yml --mac --publish never","artifact_name":"macos-build","artifact_path":"dist/*.dmg\\ndist/*.zip"},{"os":"ubuntu-latest","platform":"linux","build_command":"npx electron-builder --config electron-builder.yml --linux --publish never","artifact_name":"linux-build","artifact_path":"dist/*.AppImage\\ndist/*.deb\\ndist/*.zip"}]'
-        ) }}
+      matrix: ${{ fromJSON(needs.resolve-matrix.outputs.matrix) }}
 
     steps:
       - name: Checkout code
@@ -150,11 +177,39 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Upload artifacts
+      - name: Upload artifacts (Windows)
+        if: matrix.platform == 'windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_path }}
+          name: windows-build
+          path: |
+            dist/*.exe
+            dist/*.zip
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: ignore
+
+      - name: Upload artifacts (macOS)
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: ignore
+
+      - name: Upload artifacts (Linux)
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.zip
           retention-days: 14
           compression-level: 0
           if-no-files-found: ignore
