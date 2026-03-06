@@ -1438,6 +1438,94 @@ body {
   color: #fff;
 }
 
+.terminal-presence {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 7px 12px 8px;
+  background:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.14), transparent 42%),
+    #202225;
+  border-bottom: 1px solid #31343a;
+  color: #d1d5db;
+}
+
+.terminal-presence-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #6b7280;
+  box-shadow: 0 0 0 0 rgba(107, 114, 128, 0.45);
+  flex-shrink: 0;
+}
+
+.terminal-presence-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #f3f4f6;
+}
+
+.terminal-presence-hint {
+  min-width: 0;
+  font-size: 12px;
+  color: #9ca3af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-presence.is-ready .terminal-presence-dot {
+  background: #60a5fa;
+  box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.5);
+}
+
+.terminal-presence.is-typing .terminal-presence-dot {
+  background: #fbbf24;
+  box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.45);
+}
+
+.terminal-presence.is-running .terminal-presence-dot,
+.terminal-presence.is-output .terminal-presence-dot,
+.terminal-presence.is-credentials .terminal-presence-dot {
+  animation: terminalPulse 1.2s ease-out infinite;
+}
+
+.terminal-presence.is-running .terminal-presence-dot {
+  background: #fb7185;
+}
+
+.terminal-presence.is-output .terminal-presence-dot {
+  background: #34d399;
+}
+
+.terminal-presence.is-credentials .terminal-presence-dot {
+  background: #f59e0b;
+}
+
+.terminal-presence.is-disconnected .terminal-presence-dot {
+  background: #6b7280;
+}
+
+.terminal-presence.is-error .terminal-presence-dot {
+  background: #f87171;
+  box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.45);
+}
+
+@keyframes terminalPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.42);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(96, 165, 250, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+  }
+}
+
 .btn-close-terminal {
   width: 24px;
   height: 24px;
@@ -1460,22 +1548,27 @@ body {
 
 .terminal-container {
   flex: 1;
-  padding: 8px;
+  padding: 10px 10px 8px;
   overflow: hidden;
-  background-color: #1e1e1e;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.14), transparent 28%),
+    linear-gradient(180deg, #1d1f23 0%, #15171b 100%);
 }
 
 .terminal-container .xterm {
   height: 100%;
-  padding: 4px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(9, 12, 16, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.08);
 }
 
 .terminal-container .xterm-viewport {
-  background-color: #1e1e1e !important;
+  background-color: transparent !important;
 }
 
 .terminal-container .xterm-screen {
-  background-color: #1e1e1e;
+  background-color: transparent;
 }
 
 @media (max-width: 900px) {
@@ -1490,6 +1583,16 @@ body {
 
   .terminal-status {
     margin-right: 0;
+  }
+
+  .terminal-presence {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .terminal-presence-hint {
+    width: 100%;
+    white-space: normal;
   }
 }
 
