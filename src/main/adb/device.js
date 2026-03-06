@@ -8,6 +8,8 @@ const { getBundledAdbPath } = require('./download');
 
 const ADB_SERVER_PORT = 5037;
 const HEALTH_CHECK_INTERVAL = 5000;
+const INITIAL_DEVICE_RETRY_COUNT = 6;
+const INITIAL_DEVICE_RETRY_DELAY_MS = 500;
 
 // Platform-specific adb binary paths
 const ADB_PATHS = {
@@ -337,13 +339,30 @@ class DeviceManager extends EventEmitter {
         console.error('[ADB] Tracker error:', err.message);
       });
 
-      // Initial device list
-      await this._updateDevices();
+      // When adb has just started, listDevices() may briefly return empty even
+      // though a USB device is already authorized. Retry a few times so the UI
+      // does not get stuck on "No Devices" after startup.
+      await this._updateDevicesWithRetry(INITIAL_DEVICE_RETRY_COUNT, INITIAL_DEVICE_RETRY_DELAY_MS);
 
       console.log('[ADB] Device tracking started');
     } catch (err) {
       console.error('[ADB] Failed to start device tracking:', err.message);
     }
+  }
+
+  async _updateDevicesWithRetry(maxAttempts, delayMs) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      await this._updateDevices();
+
+      if (this.devices.length > 0 || attempt === maxAttempts) {
+        return this.devices;
+      }
+
+      console.log(`[ADB] No devices yet, retrying device list (${attempt}/${maxAttempts})...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    return this.devices;
   }
 
   /**
