@@ -44,13 +44,13 @@ jobs:
 
           case "$profile" in
             windows-only)
-              matrix='{"include":[{"os":"windows-latest","platform":"windows","build_command":"npx electron-builder --config electron-builder.yml --win --publish never"}]}'
+              matrix='{"include":[{"os":"windows-latest","platform":"windows","build_command":"npx --no-install electron-builder --config electron-builder.yml --win --publish never"}]}'
               ;;
             fast)
-              matrix='{"include":[{"os":"windows-latest","platform":"windows","build_command":"npx electron-builder --config electron-builder.yml --win --publish never"},{"os":"ubuntu-latest","platform":"linux","build_command":"npx electron-builder --config electron-builder.yml --linux --publish never"}]}'
+              matrix='{"include":[{"os":"windows-latest","platform":"windows","build_command":"npx --no-install electron-builder --config electron-builder.yml --win --publish never"}]}'
               ;;
             *)
-              matrix='{"include":[{"os":"windows-latest","platform":"windows","build_command":"npx electron-builder --config electron-builder.yml --win --publish never"},{"os":"macos-latest","platform":"macos","build_command":"npx electron-builder --config electron-builder.yml --mac --publish never"},{"os":"ubuntu-latest","platform":"linux","build_command":"npx electron-builder --config electron-builder.yml --linux --publish never"}]}'
+              matrix='{"include":[{"os":"windows-latest","platform":"windows","build_command":"npx --no-install electron-builder --config electron-builder.yml --win --publish never"},{"os":"macos-latest","platform":"macos","build_command":"npx --no-install electron-builder --config electron-builder.yml --mac --publish never"},{"os":"ubuntu-latest","platform":"linux","build_command":"npx --no-install electron-builder --config electron-builder.yml --linux --publish never"}]}'
               ;;
           esac
 
@@ -128,11 +128,27 @@ jobs:
 
       - name: Install dependencies
         shell: bash
-        run: npm ci --prefer-offline --no-audit --ignore-scripts
+        run: |
+          install_ok=true
+          if ! npm ci --include=dev --prefer-offline --no-audit --ignore-scripts; then
+            install_ok=false
+          fi
+
+          if [ "$install_ok" != "true" ] || [ ! -f node_modules/electron/package.json ] || [ ! -f node_modules/electron-builder/package.json ]; then
+            echo "Build dependencies missing after npm ci, retrying once"
+            rm -rf node_modules
+            npm ci --include=dev --no-audit --ignore-scripts
+          fi
         env:
           npm_config_fund: false
           npm_config_loglevel: warn
           npm_config_progress: false
+
+      - name: Verify build dependencies
+        shell: bash
+        run: |
+          test -f node_modules/electron/package.json
+          test -f node_modules/electron-builder/package.json
 
       - name: Prepare bundled platform-tools
         run: npm run prepare:platform-tools
