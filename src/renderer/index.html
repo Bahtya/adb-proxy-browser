@@ -52,7 +52,7 @@
         </div>
 
         <!-- Terminal Button -->
-        <button id="btn-terminal" class="btn-terminal" title="Terminal (SSH to Termux)" aria-label="Open terminal">
+        <button id="btn-terminal" class="btn-terminal" title="Terminal (ADB / SSH)" aria-label="Open terminal">
           <svg viewBox="0 0 24 24" width="18" height="18">
             <path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4-4 4z"/>
           </svg>
@@ -114,6 +114,34 @@
               <h3>Device</h3>
               <div id="device-info" class="device-info">
                 <span class="device-status">No device detected</span>
+              </div>
+            </div>
+
+            <div class="tunnel-panel">
+              <h3>Current Tunnel</h3>
+              <div class="tunnel-row">
+                <span class="tunnel-label">Proxy Tunnel</span>
+                <span id="tunnel-proxy-status" class="status-badge status-badge-disconnected">Offline</span>
+              </div>
+              <div class="tunnel-row tunnel-row-stack">
+                <span class="tunnel-label">Proxy Route</span>
+                <code id="tunnel-proxy-route" class="tunnel-value">127.0.0.1:7890 -> phone:7890 (HTTP)</code>
+              </div>
+              <div class="tunnel-row">
+                <span class="tunnel-label">Last Probe</span>
+                <span id="tunnel-probe-status" class="tunnel-value">Waiting for first probe</span>
+              </div>
+              <div class="tunnel-row">
+                <span class="tunnel-label">SSH Terminal</span>
+                <span id="tunnel-ssh-status" class="status-badge status-badge-disconnected">Disconnected</span>
+              </div>
+              <div class="tunnel-row tunnel-row-stack">
+                <span class="tunnel-label">SSH Route</span>
+                <code id="tunnel-ssh-route" class="tunnel-value">127.0.0.1:8022 -> phone:8022</code>
+              </div>
+              <div class="tunnel-row tunnel-row-stack">
+                <span class="tunnel-label">Note</span>
+                <span id="tunnel-note" class="tunnel-note">Connect a device to establish the proxy tunnel.</span>
               </div>
             </div>
 
@@ -179,12 +207,18 @@
       <!-- Terminal Panel (inside main-content for Chrome DevTools-like layout) -->
       <div id="terminal-panel" class="terminal-panel hidden">
         <div class="terminal-header">
-          <span class="terminal-title">
-            <svg viewBox="0 0 24 24" width="14" height="14" style="vertical-align: middle; margin-right: 6px;">
-              <path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4-4 4z"/>
-            </svg>
-            Termux Terminal
-          </span>
+          <div class="terminal-header-main">
+            <span class="terminal-title">
+              <svg viewBox="0 0 24 24" width="14" height="14" style="vertical-align: middle; margin-right: 6px;">
+                <path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4-4 4z"/>
+              </svg>
+              <span id="terminal-title-text">ADB Terminal</span>
+            </span>
+            <div class="terminal-mode-switch" role="tablist" aria-label="Terminal mode">
+              <button id="btn-terminal-mode-adb" class="terminal-mode-btn active" type="button" role="tab" aria-selected="true">ADB</button>
+              <button id="btn-terminal-mode-ssh" class="terminal-mode-btn" type="button" role="tab" aria-selected="false">SSH</button>
+            </div>
+          </div>
           <div class="terminal-status" id="terminal-status"></div>
           <button id="btn-close-terminal" class="btn-close-terminal" title="Close terminal" aria-label="Close terminal">&times;</button>
         </div>

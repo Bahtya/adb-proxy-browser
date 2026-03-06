@@ -428,6 +428,97 @@ body {
   color: var(--success);
 }
 
+.tunnel-panel {
+  background-color: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  padding: 16px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.tunnel-panel h3 {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.tunnel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.tunnel-row + .tunnel-row {
+  border-top: 1px solid var(--border-color);
+}
+
+.tunnel-row-stack {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.tunnel-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 84px;
+}
+
+.tunnel-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-word;
+}
+
+.tunnel-row-stack .tunnel-value,
+.tunnel-row-stack .tunnel-note {
+  text-align: left;
+}
+
+.tunnel-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-badge-connected {
+  background: rgba(52, 168, 83, 0.15);
+  color: var(--success);
+}
+
+.status-badge-connecting {
+  background: rgba(251, 188, 5, 0.2);
+  color: #8a5a00;
+}
+
+.status-badge-disconnected {
+  background: rgba(95, 99, 104, 0.12);
+  color: var(--text-secondary);
+}
+
+.status-badge-error {
+  background: rgba(234, 67, 53, 0.15);
+  color: var(--error);
+}
+
 /* Connect Button (Material-style) */
 .control-panel {
   margin-bottom: 20px;
@@ -1163,6 +1254,15 @@ body {
   .setting-row select {
     width: 100%;
   }
+
+  .tunnel-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tunnel-value {
+    text-align: left;
+  }
 }
 
 /* ========== TERMINAL BUTTON ========== */
@@ -1258,22 +1358,65 @@ body {
 .terminal-header {
   display: flex;
   align-items: center;
+  gap: 10px;
   padding: 8px 12px;
   background-color: #2d2d2d;
   border-bottom: 1px solid #3c3c3c;
   min-height: 36px;
 }
 
-.terminal-title {
+.terminal-header-main {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.terminal-title {
   color: #cccccc;
   font-size: 13px;
   font-weight: 500;
   display: flex;
   align-items: center;
+  white-space: nowrap;
+}
+
+.terminal-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: #202020;
+  border: 1px solid #3c3c3c;
+}
+
+.terminal-mode-btn {
+  min-width: 52px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.terminal-mode-btn:hover {
+  color: #f3f4f6;
+}
+
+.terminal-mode-btn.active {
+  background: #2563eb;
+  color: #fff;
 }
 
 .terminal-status {
+  flex-shrink: 0;
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 10px;
@@ -1333,6 +1476,21 @@ body {
 
 .terminal-container .xterm-screen {
   background-color: #1e1e1e;
+}
+
+@media (max-width: 900px) {
+  .terminal-header {
+    flex-wrap: wrap;
+  }
+
+  .terminal-header-main {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .terminal-status {
+    margin-right: 0;
+  }
 }
 
 /* Log Path Settings */

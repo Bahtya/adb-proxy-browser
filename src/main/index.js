@@ -9,6 +9,7 @@ console.log(`[StartupDiag] index.js first line reached: ${new Date(_procStartMs)
 const { app, BrowserWindow, ipcMain, session, dialog } = require('electron');
 console.log(`[StartupDiag] +${Math.round(Number(process.hrtime.bigint() - _procStart) / 1e6)}ms after electron require`);
 const net = require('net');
+const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 // NOTE: adb/index.js and adb/device.js both do top-level require('adbkit') which
@@ -168,21 +169,24 @@ class ConnectionManager {
   }
 }
 
-// Terminal Manager - SSH connection to Termux
+// Terminal Manager - SSH or ADB shell connection to phone
 class TerminalManager {
   constructor(adbManager) {
     this.adbManager = adbManager;
     this.sshConnection = null;
     this.sshStream = null;
+    this.adbProcess = null;
     this.sshLocalPort = 8022;
     this.connected = false;
     this.credentials = null;
+    this.mode = 'adb';
   }
 
   /**
-   * Connect to Termux via SSH
+   * Connect to terminal backend
    */
   async connect(options = {}) {
+    const mode = options.mode === 'ssh' ? 'ssh' : 'adb';
     console.log('[Terminal] connect() called with options:', { ...options, password: '***' });
 
     if (this.connected) {
@@ -190,20 +194,87 @@ class TerminalManager {
       await this.disconnect();
     }
 
-    const { username, password, localPort = 8022 } = options;
+    this.mode = mode;
+    if (mode === 'adb') {
+      return this.connectAdbShell(options);
+    }
+    return this.connectSsh(options);
+  }
 
-    // Store credentials for reconnect
-    this.credentials = { username, password };
-    this.sshLocalPort = localPort;
+  _sendTerminalData(data) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('terminal:data', data);
+    }
+  }
 
-    // Check for device
+  _sendTerminalClose(reason, mode) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('terminal:close', { reason, mode });
+    }
+  }
+
+  _createBufferedSender(mode) {
+    let dataBuffer = '';
+    let dataFlushTimeout = null;
+
+    const flushData = () => {
+      if (dataBuffer) {
+        this._sendTerminalData(dataBuffer);
+        dataBuffer = '';
+      }
+      dataFlushTimeout = null;
+    };
+
+    return {
+      push: (data) => {
+        dataBuffer += data.toString('utf8');
+        if (!dataFlushTimeout) {
+          dataFlushTimeout = setTimeout(flushData, 16);
+        }
+      },
+      flush: () => {
+        if (dataFlushTimeout) {
+          clearTimeout(dataFlushTimeout);
+        }
+        flushData();
+      },
+      close: (reason) => {
+        if (dataFlushTimeout) {
+          clearTimeout(dataFlushTimeout);
+        }
+        flushData();
+        this.connected = false;
+        if (mode === 'ssh') {
+          this.sshStream = null;
+        }
+        this._sendTerminalClose(reason, mode);
+      }
+    };
+  }
+
+  _requireDevice() {
     console.log('[Terminal] Checking for connected device...');
     const device = this.adbManager.getFirstDevice();
     if (!device) {
       console.error('[Terminal] No device connected');
       throw new Error('No device connected. Please connect your phone and try again.');
     }
+
     console.log('[Terminal] Device found:', device.id);
+    return device;
+  }
+
+  /**
+   * Connect to Termux via SSH
+   */
+  async connectSsh(options = {}) {
+    const { username, password, localPort = 8022 } = options;
+
+    // Store credentials for reconnect
+    this.credentials = { username, password };
+    this.sshLocalPort = localPort;
+
+    const device = this._requireDevice();
 
     // Create ADB forward for SSH
     // Termux sshd defaults to port 8022
@@ -280,41 +351,18 @@ class TerminalManager {
 
           this.sshStream = stream;
           this.connected = true;
+          this.mode = 'ssh';
           console.log('[Terminal] Shell created successfully - terminal ready');
-
-          // Buffer for data throttling
-          let dataBuffer = '';
-          let dataFlushTimeout = null;
-
-          const flushData = () => {
-            if (dataBuffer && mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('terminal:data', dataBuffer);
-              dataBuffer = '';
-            }
-            dataFlushTimeout = null;
-          };
+          const bufferedSender = this._createBufferedSender('ssh');
 
           // Handle stream events with buffering
           stream.on('data', (data) => {
-            dataBuffer += data.toString('utf8');
-            // Throttle data sends to max 60fps
-            if (!dataFlushTimeout) {
-              dataFlushTimeout = setTimeout(flushData, 16);
-            }
+            bufferedSender.push(data);
           });
 
           stream.on('close', () => {
             console.log('[Terminal] Stream closed');
-            // Flush any remaining data
-            if (dataFlushTimeout) {
-              clearTimeout(dataFlushTimeout);
-              flushData();
-            }
-            this.connected = false;
-            this.sshStream = null;
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('terminal:close', { reason: 'Stream closed' });
-            }
+            bufferedSender.close('SSH stream closed');
           });
 
           stream.stderr.on('data', (data) => {
@@ -396,11 +444,92 @@ class TerminalManager {
   }
 
   /**
-   * Write data to SSH stream
+   * Connect to phone shell via adb shell
+   */
+  async connectAdbShell() {
+    const device = this._requireDevice();
+    const adbPath = this.adbManager.deviceManager && this.adbManager.deviceManager.getAdbPath
+      ? this.adbManager.deviceManager.getAdbPath()
+      : 'adb';
+
+    console.log(`[Terminal] Starting adb shell with: ${adbPath} -s ${device.id} shell`);
+
+    return new Promise((resolve, reject) => {
+      const proc = spawn(adbPath, ['-s', device.id, 'shell'], {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      let resolved = false;
+      const bufferedSender = this._createBufferedSender('adb');
+
+      proc.stdout.on('data', (data) => {
+        bufferedSender.push(data);
+      });
+
+      proc.stderr.on('data', (data) => {
+        bufferedSender.push(data);
+      });
+
+      proc.on('spawn', () => {
+        this.adbProcess = proc;
+        this.connected = true;
+        this.mode = 'adb';
+        console.log('[Terminal] ADB shell started');
+        if (!resolved) {
+          resolved = true;
+          resolve({ success: true, mode: 'adb' });
+        }
+      });
+
+      proc.on('error', (err) => {
+        console.error('[Terminal] ADB shell error:', err.message);
+        this.connected = false;
+        if (this.adbProcess === proc) {
+          this.adbProcess = null;
+        }
+        if (!resolved) {
+          resolved = true;
+          reject(new Error(`Failed to start adb shell: ${err.message}`));
+          return;
+        }
+        this._sendTerminalClose(`ADB shell error: ${err.message}`, 'adb');
+      });
+
+      proc.on('close', (code, signal) => {
+        console.log('[Terminal] ADB shell closed:', { code, signal });
+        if (this.adbProcess === proc) {
+          this.adbProcess = null;
+        }
+        const reason = signal
+          ? `ADB shell closed by signal ${signal}`
+          : `ADB shell exited${typeof code === 'number' ? ` (${code})` : ''}`;
+
+        if (!resolved) {
+          resolved = true;
+          reject(new Error(reason));
+          return;
+        }
+
+        bufferedSender.close(reason);
+      });
+    });
+  }
+
+  /**
+   * Write data to current terminal stream
    */
   async write(data) {
-    if (!this.connected || !this.sshStream) {
+    if (!this.connected) {
       throw new Error('Not connected');
+    }
+
+    if (this.mode === 'adb' && this.adbProcess && this.adbProcess.stdin) {
+      this.adbProcess.stdin.write(data);
+      return true;
+    }
+
+    if (!this.sshStream) {
+      throw new Error('SSH stream not available');
     }
 
     this.sshStream.write(data);
@@ -411,7 +540,15 @@ class TerminalManager {
    * Resize terminal
    */
   async resize(cols, rows) {
-    if (!this.connected || !this.sshStream) {
+    if (!this.connected) {
+      return false;
+    }
+
+    if (this.mode === 'adb') {
+      return false;
+    }
+
+    if (!this.sshStream) {
       return false;
     }
 
@@ -422,9 +559,26 @@ class TerminalManager {
   }
 
   /**
-   * Disconnect SSH and remove ADB forward
+   * Disconnect current terminal session
    */
   async disconnect() {
+    if (this.adbProcess) {
+      const proc = this.adbProcess;
+      this.adbProcess = null;
+      try {
+        if (proc.stdin && !proc.stdin.destroyed) {
+          proc.stdin.end();
+        }
+      } catch (err) {
+        console.warn('[Terminal] Failed to close adb shell stdin:', err.message);
+      }
+      try {
+        proc.kill();
+      } catch (err) {
+        console.warn('[Terminal] Failed to kill adb shell:', err.message);
+      }
+    }
+
     if (this.sshStream) {
       this.sshStream.close();
       this.sshStream = null;
@@ -453,7 +607,8 @@ class TerminalManager {
   getStatus() {
     return {
       connected: this.connected,
-      localPort: this.sshLocalPort
+      localPort: this.sshLocalPort,
+      mode: this.mode
     };
   }
 }
@@ -863,9 +1018,11 @@ function setupIpc() {
       throw new Error('Terminal not initialized yet. Please wait.');
     }
     try {
+      const mode = options && options.mode === 'ssh' ? 'ssh' : 'adb';
+
       // Prompt for credentials if not provided
-      if (!options.username || !options.password) {
-        const result = await dialog.showMessageBox(mainWindow, {
+      if (mode === 'ssh' && (!options.username || !options.password)) {
+        await dialog.showMessageBox(mainWindow, {
           type: 'question',
           buttons: ['Cancel'],
           title: 'SSH Credentials Required',
@@ -877,7 +1034,7 @@ function setupIpc() {
         throw new Error('SSH credentials required');
       }
 
-      return await terminalManager.connect(options);
+      return await terminalManager.connect({ ...options, mode });
     } catch (err) {
       console.error('[IPC] Terminal connect error:', err.message);
       throw err;

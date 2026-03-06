@@ -103,6 +103,80 @@
     }
     .setting-row input:focus, .setting-row select:focus { border-color: #1a73e8; }
 
+    .tunnel-panel {
+      background: #fff;
+      border: 1px solid #e8eaed;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .tunnel-panel h3 {
+      font-size: 13px;
+      font-weight: 500;
+      color: #5f6368;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+    .tunnel-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 0;
+    }
+    .tunnel-row + .tunnel-row { border-top: 1px solid #f1f3f4; }
+    .tunnel-row-stack {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .tunnel-label {
+      font-size: 13px;
+      color: #3c4043;
+    }
+    .tunnel-value {
+      font-size: 12px;
+      color: #5f6368;
+      word-break: break-word;
+      text-align: right;
+    }
+    .tunnel-row-stack .tunnel-value,
+    .tunnel-note {
+      text-align: left;
+    }
+    .tunnel-note {
+      font-size: 12px;
+      color: #5f6368;
+      line-height: 1.5;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 22px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .status-badge-connected {
+      background: rgba(30, 142, 62, 0.14);
+      color: #1e8e3e;
+    }
+    .status-badge-connecting {
+      background: rgba(251, 188, 5, 0.24);
+      color: #8a5a00;
+    }
+    .status-badge-disconnected {
+      background: rgba(95, 99, 104, 0.14);
+      color: #5f6368;
+    }
+    .status-badge-error {
+      background: rgba(217, 48, 37, 0.14);
+      color: #d93025;
+    }
+
     .instructions {
       background: #fff;
       border: 1px solid #e8eaed;
@@ -134,6 +208,34 @@
       <h3>Device</h3>
       <div class="device-info" id="device-info">
         <span class="device-status">No device detected</span>
+      </div>
+    </div>
+
+    <div class="tunnel-panel">
+      <h3>Current Tunnel</h3>
+      <div class="tunnel-row">
+        <span class="tunnel-label">Proxy Tunnel</span>
+        <span id="tunnel-proxy-status" class="status-badge status-badge-disconnected">Offline</span>
+      </div>
+      <div class="tunnel-row tunnel-row-stack">
+        <span class="tunnel-label">Proxy Route</span>
+        <code id="tunnel-proxy-route" class="tunnel-value">127.0.0.1:7890 -> phone:7890 (HTTP)</code>
+      </div>
+      <div class="tunnel-row">
+        <span class="tunnel-label">Last Probe</span>
+        <span id="tunnel-probe-status" class="tunnel-value">Waiting for first probe</span>
+      </div>
+      <div class="tunnel-row">
+        <span class="tunnel-label">SSH Terminal</span>
+        <span id="tunnel-ssh-status" class="status-badge status-badge-disconnected">Disconnected</span>
+      </div>
+      <div class="tunnel-row tunnel-row-stack">
+        <span class="tunnel-label">SSH Route</span>
+        <code id="tunnel-ssh-route" class="tunnel-value">127.0.0.1:8022 -> phone:8022</code>
+      </div>
+      <div class="tunnel-row tunnel-row-stack">
+        <span class="tunnel-label">Note</span>
+        <span id="tunnel-note" class="tunnel-note">Connect a device to establish the proxy tunnel.</span>
       </div>
     </div>
 
@@ -183,6 +285,12 @@
     const proxyPort = document.getElementById('proxy-port');
     const remotePort = document.getElementById('remote-port');
     const proxyType = document.getElementById('proxy-type');
+    const tunnelProxyStatus = document.getElementById('tunnel-proxy-status');
+    const tunnelProxyRoute = document.getElementById('tunnel-proxy-route');
+    const tunnelProbeStatus = document.getElementById('tunnel-probe-status');
+    const tunnelSshStatus = document.getElementById('tunnel-ssh-status');
+    const tunnelSshRoute = document.getElementById('tunnel-ssh-route');
+    const tunnelNote = document.getElementById('tunnel-note');
 
     // Request initial status
     console.log('__ADB_GET_STATUS__');
@@ -210,6 +318,8 @@
 
     // Called by parent to push state updates
     window.updateStatus = function(data) {
+      const tunnel = data.tunnel || {};
+
       // Update device info
       if (data.devices && data.devices.length > 0) {
         const device = data.devices[0];
@@ -245,6 +355,15 @@
         remotePort.value = data.config.remotePort || 7890;
         proxyType.value = data.config.proxyType || 'http';
       }
+
+      tunnelProxyStatus.textContent = tunnel.proxyStatusLabel || 'Offline';
+      tunnelProxyStatus.className = 'status-badge status-badge-' + (tunnel.proxyStatusTone || 'disconnected');
+      tunnelProxyRoute.textContent = tunnel.proxyRoute || '127.0.0.1:7890 -> phone:7890 (HTTP)';
+      tunnelProbeStatus.textContent = tunnel.probeLabel || 'Waiting for first probe';
+      tunnelSshStatus.textContent = tunnel.sshStatusLabel || 'Disconnected';
+      tunnelSshStatus.className = 'status-badge status-badge-' + (tunnel.sshStatusTone || 'disconnected');
+      tunnelSshRoute.textContent = tunnel.sshRoute || '127.0.0.1:8022 -> phone:8022';
+      tunnelNote.textContent = tunnel.note || 'Connect a device to establish the proxy tunnel.';
     };
   </script>
 </body>
