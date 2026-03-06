@@ -20,6 +20,12 @@ const elements = {
   btnSettings: document.getElementById('btn-settings'),
   appVersionChip: document.getElementById('app-version-chip'),
   appVersionText: document.getElementById('app-version-text'),
+  tunnelProxyStatus: document.getElementById('tunnel-proxy-status'),
+  tunnelProxyRoute: document.getElementById('tunnel-proxy-route'),
+  tunnelProbeStatus: document.getElementById('tunnel-probe-status'),
+  tunnelSshStatus: document.getElementById('tunnel-ssh-status'),
+  tunnelSshRoute: document.getElementById('tunnel-ssh-route'),
+  tunnelNote: document.getElementById('tunnel-note'),
 
   // Modal
   settingsModal: document.getElementById('settings-modal'),
@@ -56,7 +62,10 @@ const elements = {
   btnTerminal: document.getElementById('btn-terminal'),
   terminalPanel: document.getElementById('terminal-panel'),
   terminalContainer: document.getElementById('terminal-container'),
+  terminalTitleText: document.getElementById('terminal-title-text'),
   terminalStatus: document.getElementById('terminal-status'),
+  btnTerminalModeAdb: document.getElementById('btn-terminal-mode-adb'),
+  btnTerminalModeSsh: document.getElementById('btn-terminal-mode-ssh'),
   btnCloseTerminal: document.getElementById('btn-close-terminal'),
   terminalResizeHandle: document.getElementById('terminal-resize-handle')
 };
@@ -106,14 +115,64 @@ class URLHistory {
   }
 }
 
-// Terminal Manager - xterm.js SSH to Termux
+// Terminal Manager - xterm.js terminal with ADB shell and SSH switching
 class TerminalManager {
   constructor() {
     this.terminal = null;
     this.fitAddon = null;
     this.connected = false;
+    this.connecting = false;
+    this.connectedMode = null;
+    this.mode = this.loadMode();
     this.credentials = null;
     this.rememberCredentials = false;
+  }
+
+  normalizeMode(mode) {
+    return mode === 'ssh' ? 'ssh' : 'adb';
+  }
+
+  loadMode() {
+    try {
+      return this.normalizeMode(localStorage.getItem('terminal_mode'));
+    } catch (e) {
+      console.warn('[Terminal] Failed to load saved mode:', e);
+      return 'adb';
+    }
+  }
+
+  saveMode(mode) {
+    try {
+      localStorage.setItem('terminal_mode', this.normalizeMode(mode));
+    } catch (e) {
+      console.warn('[Terminal] Failed to save terminal mode:', e);
+    }
+  }
+
+  getModeLabel(mode = this.mode) {
+    return this.normalizeMode(mode) === 'ssh' ? 'SSH' : 'ADB';
+  }
+
+  getModeTitle(mode = this.mode) {
+    return this.normalizeMode(mode) === 'ssh' ? 'SSH Terminal' : 'ADB Terminal';
+  }
+
+  updateModeUI() {
+    const isAdb = this.mode === 'adb';
+
+    if (elements.terminalTitleText) {
+      elements.terminalTitleText.textContent = this.getModeTitle();
+    }
+
+    if (elements.btnTerminalModeAdb) {
+      elements.btnTerminalModeAdb.classList.toggle('active', isAdb);
+      elements.btnTerminalModeAdb.setAttribute('aria-selected', String(isAdb));
+    }
+
+    if (elements.btnTerminalModeSsh) {
+      elements.btnTerminalModeSsh.classList.toggle('active', !isAdb);
+      elements.btnTerminalModeSsh.setAttribute('aria-selected', String(!isAdb));
+    }
   }
 
   /**
@@ -162,7 +221,10 @@ class TerminalManager {
    * Initialize xterm.js terminal (lazy load on first use)
    */
   async init() {
-    if (this.terminal) return;
+    if (this.terminal) {
+      this.updateModeUI();
+      return;
+    }
 
     // Lazy load xterm.js if not already loaded
     if (typeof window.loadXterm === 'function') {
@@ -253,15 +315,21 @@ class TerminalManager {
 
     // Listen for close event
     window.electronAPI.onTerminalClose((data) => {
+      const closedMode = this.normalizeMode(data && data.mode ? data.mode : this.connectedMode);
       this.connected = false;
+      this.connecting = false;
+      this.connectedMode = null;
       this.updateStatus('disconnected');
-      this.terminal.write('\r\n\x1b[33m[Connection closed]\x1b[0m\r\n');
+      this.updateModeUI();
+      this.terminal.write(`\r\n\x1b[33m[${this.getModeTitle(closedMode)} closed${data && data.reason ? `: ${data.reason}` : ''}]\x1b[0m\r\n`);
     });
 
     // Handle window resize
     window.addEventListener('resize', () => {
       this.fit();
     });
+
+    this.updateModeUI();
   }
 
   /**
@@ -284,14 +352,20 @@ class TerminalManager {
     const statusEl = elements.terminalStatus;
     statusEl.className = 'terminal-status';
 
+    state.terminalStatus = status;
+    state.terminalMessage = message || '';
+    if (status !== 'error') {
+      state.terminalLastError = '';
+    }
+
     switch (status) {
       case 'connecting':
         statusEl.classList.add('connecting');
-        statusEl.textContent = 'Connecting...';
+        statusEl.textContent = `Connecting ${this.getModeLabel()}...`;
         break;
       case 'connected':
         statusEl.classList.add('connected');
-        statusEl.textContent = 'Connected';
+        statusEl.textContent = `${this.getModeLabel(this.connectedMode)} connected`;
         break;
       case 'error':
         statusEl.classList.add('error');
@@ -300,6 +374,8 @@ class TerminalManager {
       default:
         statusEl.textContent = '';
     }
+
+    updateTunnelStatusUI();
   }
 
   /**
@@ -487,11 +563,64 @@ class TerminalManager {
     });
   }
 
+  async setMode(mode) {
+    const nextMode = this.normalizeMode(mode);
+    if (this.mode === nextMode && (!this.connected || this.connectedMode === nextMode)) {
+      this.updateModeUI();
+      return;
+    }
+
+    this.mode = nextMode;
+    this.saveMode(nextMode);
+    this.updateModeUI();
+
+    if (!elements.terminalPanel.classList.contains('hidden')) {
+      await this.connect(nextMode);
+    }
+  }
+
+  writeBanner(mode) {
+    const title = this.getModeTitle(mode);
+    this.terminal.clear();
+    this.terminal.write(`\x1b[36m=== ${title} ===\x1b[0m\r\n`);
+    if (mode === 'adb') {
+      this.terminal.write('\x1b[90mDirect interactive shell over adb.\x1b[0m\r\n\r\n');
+    } else {
+      this.terminal.write('\x1b[90mTermux SSH session over the adb tunnel.\x1b[0m\r\n\r\n');
+    }
+  }
+
   /**
-   * Connect to SSH
+   * Connect to the selected terminal mode
    */
-  async connect() {
+  async connect(mode = this.mode) {
     await this.init();
+    this.mode = this.normalizeMode(mode);
+    this.saveMode(this.mode);
+    this.updateModeUI();
+
+    if (this.connected && this.connectedMode === this.mode) {
+      this.updateStatus('connected');
+      this.fit();
+      return true;
+    }
+
+    if (this.connected) {
+      await this.disconnect({ silent: true });
+    }
+
+    this.connecting = true;
+    this.connected = false;
+    this.connectedMode = null;
+    this.writeBanner(this.mode);
+    this.updateStatus('connecting');
+    state.terminalLastError = '';
+
+    if (this.mode === 'adb') {
+      return this.connectAdb();
+    }
+
+    return this.connectSshMode();
 
     // Clear terminal
     this.terminal.clear();
@@ -499,6 +628,7 @@ class TerminalManager {
     this.terminal.write('\x1b[36m║   Connecting to Termux via SSH...   ║\x1b[0m\r\n');
     this.terminal.write('\x1b[36m╚══════════════════════════════════════╝\x1b[0m\r\n');
     console.log('[Terminal] Starting SSH connection process');
+    this.terminal.write('\x1b[90mStep 1/3: Waiting for SSH credentials...\x1b[0m\r\n');
 
     // Prompt for credentials
     this.updateStatus('connecting');
@@ -506,6 +636,7 @@ class TerminalManager {
     const credentials = await this.promptCredentials();
 
     if (!credentials || !credentials.username || !credentials.password) {
+      this.connecting = false;
       this.terminal.write('\r\n\x1b[33m⚠ Connection cancelled by user\x1b[0m\r\n');
       this.updateStatus('error', 'Cancelled');
       console.log('[Terminal] Connection cancelled - no credentials provided');
@@ -514,6 +645,7 @@ class TerminalManager {
 
     this.credentials = credentials;
     console.log('[Terminal] Credentials received, username:', credentials.username);
+    state.terminalLastError = '';
 
     try {
       // Step 1: Check device
@@ -532,8 +664,12 @@ class TerminalManager {
       this.terminal.write('\x1b[90m🔐 Step 3/3: Establishing SSH connection...\x1b[0m\r\n');
       console.log('[Terminal] Step 3: Establishing SSH connection');
 
+      this.terminal.write('\x1b[90mStep 2/3: Forwarding the SSH port through adb...\x1b[0m\r\n');
+      this.terminal.write(`\x1b[90mStep 3/3: Connecting to sshd on ${sshLocalPort} -> ${sshRemotePort}...\x1b[0m\r\n`);
+
       const startTime = Date.now();
       await window.electronAPI.terminalConnect({
+        mode: 'ssh',
         username: credentials.username,
         password: credentials.password,
         localPort: sshLocalPort,
@@ -544,6 +680,9 @@ class TerminalManager {
       console.log('[Terminal] SSH connection established in', elapsed, 'ms');
 
       this.connected = true;
+      this.connecting = false;
+      this.connectedMode = 'ssh';
+      this.updateModeUI();
       this.updateStatus('connected');
       this.terminal.write(`\r\n\x1b[32m✓ Connected successfully! (${elapsed}ms)\x1b[0m\r\n`);
       this.terminal.write('\x1b[90m────────────────────────────────────────\x1b[0m\r\n\r\n');
@@ -553,9 +692,10 @@ class TerminalManager {
 
       return true;
     } catch (err) {
-      const elapsed = Date.now() - (this._connectStartTime || Date.now());
-      console.error('[Terminal] Connection failed after', elapsed, 'ms:', err.message);
+      this.connecting = false;
+      console.error('[Terminal] Connection failed:', err.message);
       console.error('[Terminal] Error details:', err);
+      state.terminalLastError = err.message;
 
       this.terminal.write(`\r\n\x1b[31m✗ Connection failed!\x1b[0m\r\n`);
       this.terminal.write(`\x1b[31m  Error: ${err.message}\x1b[0m\r\n`);
@@ -572,10 +712,105 @@ class TerminalManager {
   }
 
   /**
-   * Disconnect from SSH
+   * Connect to SSH using the selected tunnel settings
    */
-  async disconnect() {
-    if (!this.connected) return;
+  async connectSshMode() {
+    console.log('[Terminal] Starting SSH connection process');
+    this.terminal.write('\x1b[90mStep 1/3: Waiting for SSH credentials...\x1b[0m\r\n');
+    const credentials = await this.promptCredentials();
+
+    if (!credentials || !credentials.username || !credentials.password) {
+      this.connecting = false;
+      this.terminal.write('\r\n\x1b[33mConnection cancelled by user.\x1b[0m\r\n');
+      this.updateStatus('error', 'Cancelled');
+      return false;
+    }
+
+    this.credentials = credentials;
+    state.terminalLastError = '';
+
+    try {
+      const sshLocalPort = parseInt(elements.settingsSshPort?.value || '8022', 10);
+      const sshRemotePort = parseInt(elements.settingsSshRemotePort?.value || '8022', 10);
+
+      this.terminal.write('\x1b[90mStep 2/3: Forwarding the SSH port through adb...\x1b[0m\r\n');
+      this.terminal.write(`\x1b[90mStep 3/3: Connecting to sshd on ${sshLocalPort} -> ${sshRemotePort}...\x1b[0m\r\n`);
+
+      const startTime = Date.now();
+      await window.electronAPI.terminalConnect({
+        mode: 'ssh',
+        username: credentials.username,
+        password: credentials.password,
+        localPort: sshLocalPort,
+        remotePort: sshRemotePort
+      });
+
+      const elapsed = Date.now() - startTime;
+      this.connected = true;
+      this.connecting = false;
+      this.connectedMode = 'ssh';
+      this.updateModeUI();
+      this.updateStatus('connected');
+      this.terminal.write(`\r\n\x1b[32mSSH connected in ${elapsed}ms.\x1b[0m\r\n\r\n`);
+      this.fit();
+      return true;
+    } catch (err) {
+      this.connecting = false;
+      state.terminalLastError = err.message;
+      console.error('[Terminal] SSH connection failed:', err);
+      this.terminal.write('\r\n\x1b[31mSSH connection failed.\x1b[0m\r\n');
+      this.terminal.write(`\x1b[31mError: ${err.message}\x1b[0m\r\n`);
+      this.terminal.write('\r\n\x1b[33mTroubleshooting tips:\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m1. Make sure sshd is running in Termux (run: sshd)\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m2. Check username with: whoami\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m3. Reset password with: passwd\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m4. Verify the phone is still connected over adb\x1b[0m\r\n');
+      this.updateStatus('error', 'Failed');
+      return false;
+    }
+  }
+
+  /**
+   * Connect to adb shell
+   */
+  async connectAdb() {
+    console.log('[Terminal] Starting adb shell connection process');
+    this.terminal.write('\x1b[90mStep 1/1: Opening interactive adb shell...\x1b[0m\r\n');
+
+    try {
+      const startTime = Date.now();
+      await window.electronAPI.terminalConnect({ mode: 'adb' });
+      const elapsed = Date.now() - startTime;
+
+      this.connected = true;
+      this.connecting = false;
+      this.connectedMode = 'adb';
+      this.updateModeUI();
+      this.updateStatus('connected');
+      this.terminal.write(`\r\n\x1b[32mADB shell connected in ${elapsed}ms.\x1b[0m\r\n\r\n`);
+      this.fit();
+      return true;
+    } catch (err) {
+      this.connecting = false;
+      state.terminalLastError = err.message;
+      console.error('[Terminal] ADB shell failed:', err);
+      this.terminal.write('\r\n\x1b[31mADB shell failed to start.\x1b[0m\r\n');
+      this.terminal.write(`\x1b[31mError: ${err.message}\x1b[0m\r\n`);
+      this.terminal.write('\r\n\x1b[33mTroubleshooting tips:\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m1. Confirm the phone is visible to adb\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m2. Reconnect USB if the shell exits immediately\x1b[0m\r\n');
+      this.terminal.write('\x1b[33m3. Retry after the adb connection becomes stable\x1b[0m\r\n');
+      this.updateStatus('error', 'Failed');
+      return false;
+    }
+  }
+
+  /**
+   * Disconnect from the current terminal backend
+   */
+  async disconnect(options = {}) {
+    const { silent = false } = options;
+    if (!this.connected && !this.connecting) return;
 
     try {
       await window.electronAPI.terminalDisconnect();
@@ -584,8 +819,13 @@ class TerminalManager {
     }
 
     this.connected = false;
+    this.connecting = false;
+    this.connectedMode = null;
+    state.terminalLastError = '';
     this.updateStatus('disconnected');
-    this.terminal.write('\r\n\x1b[33mDisconnected\x1b[0m\r\n');
+    if (this.terminal && !silent) {
+      this.terminal.write('\r\n\x1b[33mDisconnected.\x1b[0m\r\n');
+    }
   }
 
   /**
@@ -605,8 +845,8 @@ class TerminalManager {
     setTimeout(() => resizeWebviewsToContainer(), 50);
 
     // Auto-connect if not connected
-    if (!this.connected) {
-      await this.connect();
+    if (!this.connected || this.connectedMode !== this.mode) {
+      await this.connect(this.mode);
     }
   }
 
@@ -1764,14 +2004,22 @@ function handleFindResult(e) {
 // State
 let state = {
   connected: false,
+  tunnelAlive: false,
+  lastProbeAt: null,
+  lastConnectError: '',
   devices: [],
   currentUrl: '',
   adbError: null,
   autoConnecting: false,
+  terminalStatus: 'disconnected',
+  terminalMessage: '',
+  terminalLastError: '',
   config: {
     localPort: 7890,
     remotePort: 7890,
-    proxyType: 'http'
+    proxyType: 'http',
+    sshPort: 8022,
+    sshRemotePort: 8022
   }
 };
 
@@ -1810,6 +2058,7 @@ async function init() {
   window.electronAPI.onAdbError((error) => {
     state.adbError = error;
     showAdbError(error);
+    updateTunnelStatusUI();
   });
 
   // Load config
@@ -1835,7 +2084,9 @@ async function init() {
   try {
     const status = await window.electronAPI.getStatus();
     state.connected = status.connected;
+    state.tunnelAlive = status.connected;
     updateConnectionUI();
+    updateTunnelStatusUI();
   } catch (err) {
     console.error('Failed to get status:', err);
   }
@@ -1859,6 +2110,8 @@ function startConnectionProbe() {
   async function probe() {
     try {
       const result = await window.electronAPI.probe();
+      state.tunnelAlive = !!result.tunnelAlive;
+      state.lastProbeAt = Date.now();
 
       // Update device list if it changed
       const prevCount = state.devices.length;
@@ -1870,6 +2123,7 @@ function startConnectionProbe() {
       if (result.connected) {
         // Tunnel is alive
         state.connected = true;
+        state.lastConnectError = '';
         if (!wasConnected) updateConnectionUI();
       } else {
         // Tunnel is down or was never up
@@ -1883,6 +2137,7 @@ function startConnectionProbe() {
       }
 
       updateStatusBarProbe(result);
+      updateTunnelStatusUI();
     } catch (e) {
       // IPC failed — ignore silently
     }
@@ -1892,6 +2147,112 @@ function startConnectionProbe() {
 
   // Start after a short delay to let init() finish
   setTimeout(probe, 1500);
+}
+
+function setStatusBadge(element, label, tone) {
+  if (!element) return;
+  element.textContent = label;
+  element.className = `status-badge status-badge-${tone}`;
+}
+
+function formatClock(ts) {
+  if (!ts) return 'Waiting for first probe';
+  return new Date(ts).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+}
+
+function buildTunnelSnapshot() {
+  const localPort = state.config.localPort || 7890;
+  const remotePort = state.config.remotePort || 7890;
+  const sshPort = state.config.sshPort || 8022;
+  const sshRemotePort = state.config.sshRemotePort || 8022;
+  const proxyType = (state.config.proxyType || 'http').toUpperCase();
+  const terminalMode = terminalManager && terminalManager.mode === 'ssh' ? 'ssh' : 'adb';
+
+  let proxyStatusLabel = 'Offline';
+  let proxyStatusTone = 'disconnected';
+  if (state.connected && state.tunnelAlive) {
+    proxyStatusLabel = 'Online';
+    proxyStatusTone = 'connected';
+  } else if (state.autoConnecting) {
+    proxyStatusLabel = 'Connecting';
+    proxyStatusTone = 'connecting';
+  } else if (state.devices.length > 0) {
+    proxyStatusLabel = 'Device Ready';
+    proxyStatusTone = 'connecting';
+  }
+
+  const terminalStateMap = {
+    connected: { label: 'Connected', tone: 'connected' },
+    connecting: { label: 'Connecting', tone: 'connecting' },
+    error: { label: 'Failed', tone: 'error' },
+    disconnected: { label: 'Disconnected', tone: 'disconnected' }
+  };
+  const terminalState = terminalStateMap[state.terminalStatus] || terminalStateMap.disconnected;
+
+  let probeLabel = 'Waiting for first probe';
+  if (state.connected && state.tunnelAlive && state.lastProbeAt) {
+    probeLabel = `Reachable at ${formatClock(state.lastProbeAt)}`;
+  } else if (state.autoConnecting) {
+    probeLabel = 'Waiting for proxy tunnel';
+  } else if (state.devices.length > 0 && state.lastProbeAt) {
+    probeLabel = `Not reachable at ${formatClock(state.lastProbeAt)}`;
+  } else if (state.devices.length === 0) {
+    probeLabel = 'No active tunnel';
+  }
+
+  let note = 'Connect a device to establish the proxy tunnel.';
+  if (state.connected && state.tunnelAlive) {
+    note = 'Proxy tunnel is reachable from this computer.';
+  } else if (state.terminalStatus === 'error' && state.terminalLastError) {
+    note = `${terminalMode.toUpperCase()} terminal error: ${state.terminalLastError}`;
+  } else if (state.lastConnectError) {
+    note = `Tunnel error: ${state.lastConnectError}`;
+  } else if (state.adbError && state.adbError.message) {
+    note = state.adbError.message;
+  } else if (state.autoConnecting) {
+    note = 'Device detected. Waiting for the local tunnel to become reachable.';
+  } else if (state.devices.length > 0) {
+    note = 'Device is detected, but the proxy tunnel is not established yet.';
+  }
+
+  return {
+    proxyStatusLabel,
+    proxyStatusTone,
+    proxyRoute: `127.0.0.1:${localPort} -> phone:${remotePort} (${proxyType})`,
+    probeLabel,
+    sshStatusLabel: terminalState.label,
+    sshStatusTone: terminalState.tone,
+    sshRoute: terminalMode === 'ssh'
+      ? `SSH 127.0.0.1:${sshPort} -> phone:${sshRemotePort}`
+      : 'ADB shell via adb transport',
+    note
+  };
+}
+
+function updateTunnelStatusUI() {
+  const tunnel = buildTunnelSnapshot();
+
+  setStatusBadge(elements.tunnelProxyStatus, tunnel.proxyStatusLabel, tunnel.proxyStatusTone);
+  if (elements.tunnelProxyRoute) {
+    elements.tunnelProxyRoute.textContent = tunnel.proxyRoute;
+  }
+  if (elements.tunnelProbeStatus) {
+    elements.tunnelProbeStatus.textContent = tunnel.probeLabel;
+  }
+  setStatusBadge(elements.tunnelSshStatus, tunnel.sshStatusLabel, tunnel.sshStatusTone);
+  if (elements.tunnelSshRoute) {
+    elements.tunnelSshRoute.textContent = tunnel.sshRoute;
+  }
+  if (elements.tunnelNote) {
+    elements.tunnelNote.textContent = tunnel.note;
+  }
+
+  pushAdbStatusToAllStatusTabs();
 }
 
 // Update the status bar chip with live probe result
@@ -2009,6 +2370,8 @@ function setupEventListeners() {
   // Terminal
   elements.btnTerminal.addEventListener('click', () => terminalManager.toggle());
   elements.btnCloseTerminal.addEventListener('click', () => terminalManager.hide());
+  elements.btnTerminalModeAdb.addEventListener('click', () => terminalManager.setMode('adb'));
+  elements.btnTerminalModeSsh.addEventListener('click', () => terminalManager.setMode('ssh'));
 
   // Settings change listeners
   elements.proxyPort.addEventListener('change', updateConfig);
@@ -2020,12 +2383,15 @@ function setupEventListeners() {
     console.log('[Renderer] device:changed received, count:', devices ? devices.length : 'null');
     state.devices = devices || [];
     updateDeviceUI();
+    updateTunnelStatusUI();
   });
 
   // Listen for connection status changes
   window.electronAPI.onStatusChanged((status) => {
     state.connected = status.connected;
+    state.tunnelAlive = status.connected;
     updateConnectionUI();
+    updateTunnelStatusUI();
   });
 
   // Close modal on outside click
@@ -2264,7 +2630,9 @@ function showWelcomeScreen() {
 async function autoConnect() {
   if (state.autoConnecting || state.connected || state.devices.length === 0) return;
   state.autoConnecting = true;
+  state.lastConnectError = '';
   updateConnectionUI();
+  updateTunnelStatusUI();
 
   while (state.devices.length > 0 && !state.connected) {
     try {
@@ -2274,7 +2642,11 @@ async function autoConnect() {
         proxyType: state.config.proxyType
       });
       state.connected = true;
+      state.tunnelAlive = true;
+      state.lastConnectError = '';
     } catch (err) {
+      state.lastConnectError = err.message;
+      updateTunnelStatusUI();
       // Retry after 2s
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
@@ -2282,6 +2654,7 @@ async function autoConnect() {
 
   state.autoConnecting = false;
   updateConnectionUI();
+  updateTunnelStatusUI();
 }
 
 // Toggle connection (manual disconnect only — connect is automatic)
@@ -2296,10 +2669,13 @@ async function toggleConnection() {
   try {
     await window.electronAPI.disconnect();
     state.connected = false;
+    state.tunnelAlive = false;
+    state.lastConnectError = '';
   } catch (err) {
     console.error('Disconnect failed:', err);
   }
   updateConnectionUI();
+  updateTunnelStatusUI();
 }
 
 // Push current ADB status to a webview showing adb-status-page.html
@@ -2309,7 +2685,8 @@ function pushAdbStatusToWebview(webview) {
       connected: state.connected,
       autoConnecting: state.autoConnecting,
       devices: state.devices,
-      config: state.config
+      config: state.config,
+      tunnel: buildTunnelSnapshot()
     };
     webview.executeJavaScript(`
       if (typeof window.updateStatus === 'function') {
@@ -2406,6 +2783,7 @@ async function updateConfig() {
 
   try {
     await window.electronAPI.setConfig(state.config);
+    updateTunnelStatusUI();
   } catch (err) {
     console.error('Failed to save config:', err);
   }
@@ -2508,6 +2886,7 @@ async function saveSettings() {
   try {
     await window.electronAPI.setConfig(state.config);
     updateSettingsUI();
+    updateTunnelStatusUI();
     closeSettings();
   } catch (err) {
     console.error('Failed to save settings:', err);
