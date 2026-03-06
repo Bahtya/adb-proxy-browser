@@ -90,6 +90,9 @@ jobs:
           npm_config_fund: false
           npm_config_loglevel: warn
 
+      - name: Prepare bundled platform-tools
+        run: npm run prepare:platform-tools
+
       # Rebuild native modules after cache restore
       - name: Rebuild native modules
         if: steps.npm-cache.outputs.cache-hit == 'true'

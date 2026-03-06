@@ -11,22 +11,55 @@ const PLATFORM_TOOLS_URLS = {
   linux: 'https://dl.google.com/android/repository/platform-tools-latest-linux.zip'
 };
 
-// Get platform tools directory
-function getPlatformToolsDir() {
+function getAdbExecutableName() {
+  return process.platform === 'win32' ? 'adb.exe' : 'adb';
+}
+
+function getDownloadedPlatformToolsDir() {
   return path.join(os.homedir(), '.adb-proxy-browser', 'platform-tools');
+}
+
+function getDevBundledPlatformToolsDir() {
+  return path.resolve(__dirname, '../../../bundled-tools/platform-tools');
+}
+
+function getPackagedPlatformToolsDir() {
+  if (!process.resourcesPath) {
+    return null;
+  }
+  return path.join(process.resourcesPath, 'platform-tools');
+}
+
+function getPlatformToolsDirCandidates() {
+  const candidates = [];
+  const packagedDir = getPackagedPlatformToolsDir();
+  const devBundledDir = getDevBundledPlatformToolsDir();
+  const downloadedDir = getDownloadedPlatformToolsDir();
+
+  if (packagedDir) candidates.push(packagedDir);
+  candidates.push(devBundledDir);
+  candidates.push(downloadedDir);
+
+  return candidates;
+}
+
+function getExistingPlatformToolsDir() {
+  return getPlatformToolsDirCandidates().find((dir) => fs.existsSync(path.join(dir, getAdbExecutableName()))) || null;
+}
+
+// Backward-compatible name used by the rest of the app.
+function getPlatformToolsDir() {
+  return getExistingPlatformToolsDir() || getDownloadedPlatformToolsDir();
 }
 
 // Get adb path
 function getBundledAdbPath() {
-  const dir = getPlatformToolsDir();
-  const adbName = process.platform === 'win32' ? 'adb.exe' : 'adb';
-  return path.join(dir, adbName);
+  return path.join(getPlatformToolsDir(), getAdbExecutableName());
 }
 
 // Check if bundled adb exists
 function hasBundledAdb() {
-  const adbPath = getBundledAdbPath();
-  return fs.existsSync(adbPath);
+  return !!getExistingPlatformToolsDir();
 }
 
 // Download file
@@ -35,10 +68,9 @@ function downloadFile(url, dest) {
     console.log(`[ADB] Downloading from ${url}`);
     const file = fs.createWriteStream(dest);
 
-    const request = (url) => {
-      https.get(url, (response) => {
+    const request = (nextUrl) => {
+      https.get(nextUrl, (response) => {
         if (response.statusCode === 302 || response.statusCode === 301) {
-          // Follow redirect
           request(response.headers.location);
           return;
         }
@@ -53,7 +85,7 @@ function downloadFile(url, dest) {
 
         response.on('data', (chunk) => {
           downloaded += chunk.length;
-          const percent = Math.round((downloaded / totalSize) * 100);
+          const percent = totalSize ? Math.round((downloaded / totalSize) * 100) : 0;
           process.stdout.write(`\r[ADB] Downloading: ${percent}%`);
         });
 
@@ -79,20 +111,18 @@ async function extractZip(zipPath, destDir) {
   return new Promise((resolve, reject) => {
     console.log(`[ADB] Extracting ${zipPath} to ${destDir}`);
 
-    // Create dest directory
     if (!fs.existsSync(destDir)) {
       fs.mkdirSync(destDir, { recursive: true });
     }
 
     let cmd;
     if (process.platform === 'win32') {
-      // Use PowerShell to extract
       cmd = `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${path.dirname(destDir)}' -Force"`;
     } else {
       cmd = `unzip -o "${zipPath}" -d "${path.dirname(destDir)}"`;
     }
 
-    exec(cmd, (error, stdout, stderr) => {
+    exec(cmd, (error) => {
       if (error) {
         console.error(`[ADB] Extract error: ${error.message}`);
         reject(error);
@@ -104,39 +134,50 @@ async function extractZip(zipPath, destDir) {
   });
 }
 
+function ensureAdbExecutable(targetDir) {
+  if (process.platform === 'win32') {
+    return;
+  }
+
+  const adbPath = path.join(targetDir, getAdbExecutableName());
+  if (fs.existsSync(adbPath)) {
+    fs.chmodSync(adbPath, '755');
+  }
+}
+
+function ensureAdbExists(targetDir) {
+  const adbPath = path.join(targetDir, getAdbExecutableName());
+  if (!fs.existsSync(adbPath)) {
+    throw new Error(`ADB binary not found after extraction: ${adbPath}`);
+  }
+  return adbPath;
+}
+
 // Download and setup platform tools
-async function downloadPlatformTools(onProgress) {
+async function downloadPlatformTools(onProgress, options = {}) {
   const url = PLATFORM_TOOLS_URLS[process.platform];
   if (!url) {
     throw new Error(`Unsupported platform: ${process.platform}`);
   }
 
-  const platformToolsDir = getPlatformToolsDir();
-  const zipPath = path.join(os.tmpdir(), 'platform-tools.zip');
+  const platformToolsDir = options.targetDir || getDownloadedPlatformToolsDir();
+  const zipPath = options.zipPath || path.join(os.tmpdir(), `platform-tools-${process.platform}.zip`);
 
   try {
     if (onProgress) onProgress('downloading', 0);
 
-    // Download
     await downloadFile(url, zipPath);
     if (onProgress) onProgress('extracting', 50);
 
-    // Extract
     await extractZip(zipPath, platformToolsDir);
+    ensureAdbExecutable(platformToolsDir);
+    const adbPath = ensureAdbExists(platformToolsDir);
     if (onProgress) onProgress('complete', 100);
 
-    // Make executable on Unix
-    if (process.platform !== 'win32') {
-      const adbPath = getBundledAdbPath();
-      fs.chmodSync(adbPath, '755');
-    }
-
-    // Cleanup
     fs.unlinkSync(zipPath);
 
-    return getBundledAdbPath();
+    return adbPath;
   } catch (err) {
-    // Cleanup on error
     try {
       if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
     } catch (e) {}
@@ -146,6 +187,9 @@ async function downloadPlatformTools(onProgress) {
 
 module.exports = {
   getPlatformToolsDir,
+  getDownloadedPlatformToolsDir,
+  getDevBundledPlatformToolsDir,
+  getPackagedPlatformToolsDir,
   getBundledAdbPath,
   hasBundledAdb,
   downloadPlatformTools

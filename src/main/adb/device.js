@@ -4,7 +4,7 @@ const net = require('net');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const { getBundledAdbPath, hasBundledAdb } = require('./download');
+const { getBundledAdbPath } = require('./download');
 
 const ADB_SERVER_PORT = 5037;
 const HEALTH_CHECK_INTERVAL = 5000;
@@ -79,9 +79,12 @@ class DeviceManager extends EventEmitter {
 
     if (!isRunning) {
       console.log('[ADB] ADB server not running, starting...');
-      const started = await this._startAdbServer();
-      if (!started) {
-        this.emit('server:error', { message: 'Failed to start ADB server' });
+      const startResult = await this._startAdbServer();
+      if (!startResult.ok) {
+        this.emit('server:error', {
+          message: startResult.message || 'Failed to start ADB server',
+          help: startResult.help || 'Please install Android Platform Tools or start ADB manually.'
+        });
         return;
       }
     } else {
@@ -90,7 +93,22 @@ class DeviceManager extends EventEmitter {
 
     // Initialize adbkit client
     try {
-      const adbkit = require('@devicefarmer/adbkit').default || require('@devicefarmer/adbkit');
+      // Prefer adbkit from package.json; keep compatibility with devicefarmer fork if present.
+      let adbkit;
+      try {
+        adbkit = require('adbkit');
+      } catch (errPrimary) {
+        const missingPrimary = errPrimary && errPrimary.code === 'MODULE_NOT_FOUND';
+        if (!missingPrimary) throw errPrimary;
+        try {
+          const fallback = require('@devicefarmer/adbkit');
+          adbkit = fallback.default || fallback;
+        } catch (errFallback) {
+          throw new Error(
+            `Unable to load ADB library. Tried "adbkit" and "@devicefarmer/adbkit". ${errPrimary.message}`
+          );
+        }
+      }
       this.client = adbkit.createClient();
 
       // Start device tracking
@@ -144,36 +162,68 @@ class DeviceManager extends EventEmitter {
 
       let stdout = '';
       let stderr = '';
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(result);
+      };
 
       proc.stdout.on('data', (data) => { stdout += data.toString(); });
       proc.stderr.on('data', (data) => { stderr += data.toString(); });
 
-      proc.on('close', (code) => {
+      proc.on('close', async (code) => {
         if (code === 0) {
           console.log('[ADB] Server started successfully');
-          resolve(true);
+          finish({ ok: true });
         } else {
-          console.error(`[ADB] Server start failed with code ${code}: ${stderr}`);
-          resolve(false);
+          // Some adb variants return non-zero while server is actually up.
+          const running = await this._checkServerRunning();
+          if (running) {
+            console.warn(`[ADB] start-server exited with code ${code}, but server is reachable`);
+            finish({ ok: true });
+            return;
+          }
+
+          const details = (stderr || stdout || '').trim();
+          const message = details
+            ? `Failed to start ADB server (${details})`
+            : `Failed to start ADB server (exit code ${code})`;
+          console.error(`[ADB] ${message}`);
+          finish({
+            ok: false,
+            message,
+            help: 'Run "adb start-server" to verify ADB works, or install Android Platform Tools.'
+          });
         }
       });
 
       proc.on('error', (err) => {
         console.error(`[ADB] Failed to spawn adb: ${err.message}`);
-        this.emit('adb:error', {
-          message: 'ADB not found. Please install Android Platform Tools.',
-          help: 'Run "adb install-platform-tools" or install Android SDK.'
+        const isMissingAdb = err.code === 'ENOENT';
+        finish({
+          ok: false,
+          message: isMissingAdb
+            ? 'ADB binary not found. Please install Android Platform Tools.'
+            : `Failed to launch ADB: ${err.message}`,
+          help: isMissingAdb
+            ? 'Use "Auto Download" in the app or install Android Platform Tools manually.'
+            : 'Please verify adb executable is accessible and retry.'
         });
-        resolve(false);
       });
 
       // Timeout after 10 seconds
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         if (!proc.killed) {
           proc.kill();
           console.log('[ADB] Server start timed out');
-          resolve(false);
         }
+        finish({
+          ok: false,
+          message: 'Failed to start ADB server (timeout)',
+          help: 'Please check whether adb can start from terminal via "adb start-server".'
+        });
       }, 10000);
     });
   }
