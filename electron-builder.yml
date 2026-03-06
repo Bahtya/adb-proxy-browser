@@ -6,6 +6,11 @@ files:
   - src/**/*
   - assets/**/*
   - package.json
+extraResources:
+  - from: bundled-tools/platform-tools
+    to: platform-tools
+    filter:
+      - '**/*'
 win:
   target:
     - target: zip
