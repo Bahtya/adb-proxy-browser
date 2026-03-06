@@ -1,15 +1,15 @@
 {
   "name": "adb-proxy-browser",
-  "version": "0.7.46",
+  "version": "0.7.47",
   "description": "A customized browser that routes traffic through ADB tunnel to phone proxy (Clash)",
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
     "prepare:platform-tools": "node scripts/prepare-platform-tools.js",
-    "build": "electron-builder",
-    "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux",
+    "build": "electron-builder --config electron-builder.yml",
+    "build:win": "electron-builder --config electron-builder.yml --win",
+    "build:mac": "electron-builder --config electron-builder.yml --mac",
+    "build:linux": "electron-builder --config electron-builder.yml --linux",
     "debug:screenshot": "electron scripts/debug-screenshot.js",
     "debug:auto": "electron scripts/debug-auto.js",
     "test:browser": "electron scripts/test-browser-features.js"
@@ -30,20 +30,6 @@
     "adbkit": "^2.11.1",
     "ssh2": "^1.17.0",
     "usb": "^2.11.0"
-  },
-  "build": {
-    "appId": "com.bahtya.adb-proxy-browser",
-    "productName": "ADB Proxy Browser",
-    "icon": "assets/icon.png",
-    "mac": {
-      "icon": "assets/icon.png"
-    },
-    "win": {
-      "icon": "assets/icon.png"
-    },
-    "linux": {
-      "icon": "assets/icon.png"
-    }
   },
   "devDependencies": {
     "electron": "^28.0.0",
