@@ -783,8 +783,8 @@ function setupIpc() {
   // ADB: Retry initialization
   ipcMain.handle('adb:retry', async () => {
     try {
-      await connectionManager.init();
-      return { success: true };
+      const success = await connectionManager.adbManager.retry();
+      return { success };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -1036,38 +1036,41 @@ app.whenReady().then(async () => {
   perf.mark(`createWindow() complete (${Date.now() - windowStart}ms)`);
   perf.summary(); // Log sync startup summary (window visible)
 
-  // Initialize ADB in background (non-blocking)
-  const adbStart = Date.now();
-  connectionManager.init().then(() => {
-    const adbManager = connectionManager.adbManager;
-    if (adbManager.isReady()) {
-      perf.mark(`ADB init complete (${Date.now() - adbStart}ms)`);
-      perf.summary(); // Log full startup summary (ADB ready)
-      // Push device list to renderer once ADB is ready
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        const devices = adbManager.getDevices();
-        mainWindow.webContents.send('device:changed', devices);
+  // Initialize ADB on the next event-loop turn so renderer load/show events are
+  // not delayed by Windows usb/libusb initialization inside adbkit.
+  setTimeout(() => {
+    const adbStart = Date.now();
+    connectionManager.init().then(() => {
+      const adbManager = connectionManager.adbManager;
+      if (adbManager.isReady()) {
+        perf.mark(`ADB init complete (${Date.now() - adbStart}ms)`);
+        perf.summary(); // Log full startup summary (ADB ready)
+        // Push device list to renderer once ADB is ready
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          const devices = adbManager.getDevices();
+          mainWindow.webContents.send('device:changed', devices);
+        }
+      } else {
+        // ADB server not running - inform renderer
+        const serverError = adbManager.getServerError();
+        const msg = serverError ? serverError.message : 'ADB server not running';
+        perf.mark(`ADB init skipped (${Date.now() - adbStart}ms): ${msg}`);
+        perf.summary();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('adb:error', {
+            message: msg,
+            help: serverError ? serverError.help : 'Please start ADB server manually'
+          });
+        }
       }
-    } else {
-      // ADB server not running - inform renderer
-      const serverError = adbManager.getServerError();
-      const msg = serverError ? serverError.message : 'ADB server not running';
-      perf.mark(`ADB init skipped (${Date.now() - adbStart}ms): ${msg}`);
-      perf.summary();
+    }).catch(err => {
+      perf.mark(`ADB init FAILED (${Date.now() - adbStart}ms): ${err.message}`);
+      perf.summary(); // Log full startup summary (ADB failed)
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('adb:error', {
-          message: msg,
-          help: serverError ? serverError.help : 'Please start ADB server manually'
-        });
+        mainWindow.webContents.send('adb:error', { message: err.message });
       }
-    }
-  }).catch(err => {
-    perf.mark(`ADB init FAILED (${Date.now() - adbStart}ms): ${err.message}`);
-    perf.summary(); // Log full startup summary (ADB failed)
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('adb:error', { message: err.message });
-    }
-  });
+    });
+  }, 0);
 });
 
 app.on('activate', () => {

@@ -39,7 +39,7 @@ class AdbManager {
       this.client = this.deviceManager.client;
 
       // Initialize port forwarder with client
-      this.portForwarder = new PortForwarder(this.client);
+      this.portForwarder = new PortForwarder(this.client, this.deviceManager.getAdbPath());
 
       this.initialized = true;
       this.serverError = null;
