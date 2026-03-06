@@ -64,6 +64,9 @@ const elements = {
   terminalContainer: document.getElementById('terminal-container'),
   terminalTitleText: document.getElementById('terminal-title-text'),
   terminalStatus: document.getElementById('terminal-status'),
+  terminalPresence: document.getElementById('terminal-presence'),
+  terminalPresenceLabel: document.getElementById('terminal-presence-label'),
+  terminalPresenceHint: document.getElementById('terminal-presence-hint'),
   btnTerminalModeAdb: document.getElementById('btn-terminal-mode-adb'),
   btnTerminalModeSsh: document.getElementById('btn-terminal-mode-ssh'),
   btnCloseTerminal: document.getElementById('btn-close-terminal'),
@@ -126,6 +129,9 @@ class TerminalManager {
     this.mode = this.loadMode();
     this.credentials = null;
     this.rememberCredentials = false;
+    this.localAdbInput = '';
+    this.adbPromptVisible = false;
+    this.adbPromptTimer = null;
   }
 
   normalizeMode(mode) {
@@ -155,6 +161,163 @@ class TerminalManager {
 
   getModeTitle(mode = this.mode) {
     return this.normalizeMode(mode) === 'ssh' ? 'SSH Terminal' : 'ADB Terminal';
+  }
+
+  clearAdbPromptTimer() {
+    if (this.adbPromptTimer) {
+      clearTimeout(this.adbPromptTimer);
+      this.adbPromptTimer = null;
+    }
+  }
+
+  resetAdbFlowState() {
+    this.clearAdbPromptTimer();
+    this.localAdbInput = '';
+    this.adbPromptVisible = false;
+  }
+
+  updateInteractionState(stage, hint = '') {
+    const presenceEl = elements.terminalPresence;
+    const labelEl = elements.terminalPresenceLabel;
+    const hintEl = elements.terminalPresenceHint;
+    if (!presenceEl || !labelEl || !hintEl) return;
+
+    const defaults = {
+      disconnected: {
+        label: 'Disconnected',
+        hint: 'Open the terminal to start a shell session.'
+      },
+      connecting: {
+        label: `Opening ${this.getModeLabel()}`,
+        hint: `Preparing the ${this.getModeLabel().toLowerCase()} session...`
+      },
+      credentials: {
+        label: 'Waiting For Credentials',
+        hint: 'Enter your SSH username and password to continue.'
+      },
+      ready: {
+        label: `${this.getModeLabel(this.connectedMode || this.mode)} Ready`,
+        hint: this.normalizeMode(this.connectedMode || this.mode) === 'adb'
+          ? 'Blue ">" means you can type. Press Enter to run the command.'
+          : 'Use the remote shell prompt in the terminal to keep typing.'
+      },
+      typing: {
+        label: 'Typing',
+        hint: 'Your command is still being edited. Press Enter to run it.'
+      },
+      running: {
+        label: 'Running',
+        hint: 'The command was sent to the device. Waiting for response...'
+      },
+      output: {
+        label: 'Streaming Output',
+        hint: 'Device output is still arriving. A new prompt appears when it settles.'
+      },
+      error: {
+        label: 'Needs Attention',
+        hint: 'Check the latest terminal message for details.'
+      }
+    };
+
+    const next = defaults[stage] || defaults.disconnected;
+    presenceEl.className = `terminal-presence is-${stage}`;
+    labelEl.textContent = next.label;
+    hintEl.textContent = hint || next.hint;
+  }
+
+  renderAdbPrompt() {
+    if (!this.terminal || this.connectedMode !== 'adb' || this.adbPromptVisible) {
+      return;
+    }
+
+    this.terminal.write('\x1b[38;2;96;165;250m>\x1b[0m ');
+    this.adbPromptVisible = true;
+    this.updateInteractionState('ready');
+  }
+
+  scheduleAdbPrompt(delay = 220) {
+    if (this.connectedMode !== 'adb') return;
+
+    this.clearAdbPromptTimer();
+    this.adbPromptTimer = setTimeout(() => {
+      if (!this.connected || this.connectedMode !== 'adb' || this.localAdbInput) {
+        return;
+      }
+      this.renderAdbPrompt();
+    }, delay);
+  }
+
+  handleAdbLocalInput(data) {
+    for (const char of data) {
+      if (char === '\r') {
+        this.terminal.write('\r\n');
+        const hadCommand = this.localAdbInput.trim().length > 0;
+        this.localAdbInput = '';
+        this.adbPromptVisible = false;
+        this.updateInteractionState(hadCommand ? 'running' : 'ready');
+        if (!hadCommand) {
+          this.scheduleAdbPrompt(120);
+        }
+        continue;
+      }
+
+      if (char === '\u007f') {
+        if (this.localAdbInput.length > 0) {
+          this.localAdbInput = this.localAdbInput.slice(0, -1);
+          this.terminal.write('\b \b');
+        }
+        this.updateInteractionState(this.localAdbInput ? 'typing' : 'ready');
+        continue;
+      }
+
+      if (char === '\t') {
+        if (!this.adbPromptVisible) {
+          this.renderAdbPrompt();
+        }
+        this.localAdbInput += '  ';
+        this.terminal.write('  ');
+        this.updateInteractionState('typing');
+        continue;
+      }
+
+      if (char === '\u0003') {
+        this.localAdbInput = '';
+        this.adbPromptVisible = false;
+        this.terminal.write('^C\r\n');
+        this.updateInteractionState('ready', 'Command interrupted. You can type the next one.');
+        this.scheduleAdbPrompt(120);
+        continue;
+      }
+
+      if (char < ' ' || char === '\x7f') {
+        continue;
+      }
+
+      if (!this.adbPromptVisible) {
+        this.renderAdbPrompt();
+      }
+
+      this.localAdbInput += char;
+      this.terminal.write(char);
+      this.updateInteractionState('typing');
+    }
+  }
+
+  handleTerminalData(data) {
+    if (!this.terminal) return;
+
+    if (this.connectedMode === 'adb') {
+      this.clearAdbPromptTimer();
+      this.adbPromptVisible = false;
+      if (data && data.trim()) {
+        this.updateInteractionState('output');
+      }
+      this.terminal.write(data);
+      this.scheduleAdbPrompt();
+      return;
+    }
+
+    this.terminal.write(data);
   }
 
   updateModeUI() {
@@ -302,6 +465,9 @@ class TerminalManager {
     // Handle input
     this.terminal.onData((data) => {
       if (this.connected) {
+        if (this.connectedMode === 'adb') {
+          this.handleAdbLocalInput(data);
+        }
         window.electronAPI.terminalWrite(data);
       }
     });
@@ -315,18 +481,18 @@ class TerminalManager {
 
     // Listen for data from main process
     window.electronAPI.onTerminalData((data) => {
-      if (this.terminal) {
-        this.terminal.write(data);
-      }
+      this.handleTerminalData(data);
     });
 
     // Listen for close event
     window.electronAPI.onTerminalClose((data) => {
       const closedMode = this.normalizeMode(data && data.mode ? data.mode : this.connectedMode);
+      this.resetAdbFlowState();
       this.connected = false;
       this.connecting = false;
       this.connectedMode = null;
       this.updateStatus('disconnected');
+      this.updateInteractionState('disconnected', `${this.getModeTitle(closedMode)} closed${data && data.reason ? `: ${data.reason}` : '.'}`);
       this.updateModeUI();
       this.terminal.write(`\r\n\x1b[33m[${this.getModeTitle(closedMode)} closed${data && data.reason ? `: ${data.reason}` : ''}]\x1b[0m\r\n`);
     });
@@ -337,6 +503,7 @@ class TerminalManager {
     });
 
     this.updateModeUI();
+    this.updateInteractionState('disconnected');
   }
 
   /**
@@ -379,6 +546,7 @@ class TerminalManager {
       case 'connecting':
         statusEl.classList.add('connecting');
         statusEl.textContent = `Connecting ${this.getModeLabel()}...`;
+        this.updateInteractionState('connecting');
         break;
       case 'connected':
         statusEl.classList.add('connected');
@@ -387,6 +555,7 @@ class TerminalManager {
       case 'error':
         statusEl.classList.add('error');
         statusEl.textContent = message || 'Error';
+        this.updateInteractionState('error', message || '');
         break;
       default:
         statusEl.textContent = '';
@@ -598,13 +767,15 @@ class TerminalManager {
 
   writeBanner(mode) {
     const title = this.getModeTitle(mode);
+    this.resetAdbFlowState();
     this.terminal.clear();
     this.terminal.write(`\x1b[36m=== ${title} ===\x1b[0m\r\n`);
     if (mode === 'adb') {
       this.terminal.write('\x1b[90mDirect interactive shell over adb.\x1b[0m\r\n');
-      this.terminal.write('\x1b[90mType directly in the terminal area after it opens.\x1b[0m\r\n\r\n');
+      this.terminal.write('\x1b[90mBlue ">" means ready for input. Status strip shows typing, running and output.\x1b[0m\r\n\r\n');
     } else {
-      this.terminal.write('\x1b[90mTermux SSH session over the adb tunnel.\x1b[0m\r\n\r\n');
+      this.terminal.write('\x1b[90mTermux SSH session over the adb tunnel.\x1b[0m\r\n');
+      this.terminal.write('\x1b[90mFollow the remote shell prompt shown by the device once connected.\x1b[0m\r\n\r\n');
     }
   }
 
@@ -735,6 +906,7 @@ class TerminalManager {
    */
   async connectSshMode() {
     console.log('[Terminal] Starting SSH connection process');
+    this.updateInteractionState('credentials');
     this.terminal.write('\x1b[90mStep 1/3: Waiting for SSH credentials...\x1b[0m\r\n');
     const credentials = await this.promptCredentials();
 
@@ -770,6 +942,7 @@ class TerminalManager {
       this.connectedMode = 'ssh';
       this.updateModeUI();
       this.updateStatus('connected');
+      this.updateInteractionState('ready');
       this.terminal.write(`\r\n\x1b[32mSSH connected in ${elapsed}ms.\x1b[0m\r\n\r\n`);
       this.fit();
       this.focusTerminal();
@@ -808,6 +981,7 @@ class TerminalManager {
       this.updateModeUI();
       this.updateStatus('connected');
       this.terminal.write(`\r\n\x1b[32mADB shell connected in ${elapsed}ms.\x1b[0m\r\n\r\n`);
+      this.renderAdbPrompt();
       this.fit();
       this.focusTerminal();
       return true;
@@ -842,8 +1016,10 @@ class TerminalManager {
     this.connected = false;
     this.connecting = false;
     this.connectedMode = null;
+    this.resetAdbFlowState();
     state.terminalLastError = '';
     this.updateStatus('disconnected');
+    this.updateInteractionState('disconnected');
     if (this.terminal && !silent) {
       this.terminal.write('\r\n\x1b[33mDisconnected.\x1b[0m\r\n');
     }
