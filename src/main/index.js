@@ -528,7 +528,11 @@ class TerminalManager {
     }
 
     if (this.mode === 'adb' && this.adbProcess && this.adbProcess.stdin) {
-      this.adbProcess.stdin.write(data);
+      // xterm sends Enter as '\r', but piped `adb shell` on Windows expects '\n'.
+      const normalized = typeof data === 'string'
+        ? data.replace(/\r(?!\n)/g, '\n')
+        : data;
+      this.adbProcess.stdin.write(normalized);
       return true;
     }
 
