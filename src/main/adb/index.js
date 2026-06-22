@@ -65,7 +65,7 @@ class AdbManager {
    * Check if ADB is ready
    */
   isReady() {
-    return this.initialized && this.deviceManager && this.deviceManager.isServerRunning();
+    return this.initialized && this.deviceManager.isServerRunning();
   }
 
   /**
@@ -79,14 +79,14 @@ class AdbManager {
    * Get connected devices
    */
   getDevices() {
-    return this.deviceManager ? this.deviceManager.getDevices() : [];
+    return this.deviceManager.getDevices();
   }
 
   /**
    * Get first connected device
    */
   getFirstDevice() {
-    return this.deviceManager ? this.deviceManager.getFirstDevice() : null;
+    return this.deviceManager.getFirstDevice();
   }
 
   /**
@@ -143,64 +143,10 @@ class AdbManager {
   }
 
   /**
-   * Create SSH port forward (local:8022 -> phone:8022 by default for Termux)
-   */
-  async forwardSSH(localPort = 8022, deviceId = null, remotePort = 8022) {
-    if (!this.initialized || !this.portForwarder) {
-      throw new Error('ADB not ready. Please start ADB server first.');
-    }
-
-    const device = deviceId
-      ? this.deviceManager.getDeviceById(deviceId)
-      : this.deviceManager.getFirstDevice();
-
-    if (!device) {
-      throw new Error('No device connected');
-    }
-
-    return this.portForwarder.forward(device.id, localPort, remotePort);
-  }
-
-  /**
-   * Remove SSH port forward
-   */
-  async removeSSHForward(localPort = 8022, deviceId = null) {
-    if (!this.initialized || !this.portForwarder) return;
-
-    const device = deviceId
-      ? this.deviceManager.getDeviceById(deviceId)
-      : this.deviceManager.getFirstDevice();
-
-    if (device) {
-      await this.portForwarder.removeForward(device.id, localPort);
-    }
-  }
-
-  /**
    * Subscribe to device events
    */
-  onDeviceConnected(callback) {
-    if (this.deviceManager) {
-      this.deviceManager.on('device:connected', callback);
-    }
-  }
-
-  onDeviceDisconnected(callback) {
-    if (this.deviceManager) {
-      this.deviceManager.on('device:disconnected', callback);
-    }
-  }
-
   onDevicesUpdated(callback) {
-    if (this.deviceManager) {
-      this.deviceManager.on('devices:updated', callback);
-    }
-  }
-
-  onServerError(callback) {
-    if (this.deviceManager) {
-      this.deviceManager.on('server:error', callback);
-    }
+    this.deviceManager.on('devices:updated', callback);
   }
 
   /**
@@ -210,9 +156,7 @@ class AdbManager {
     if (this.portForwarder) {
       await this.portForwarder.clearAll();
     }
-    if (this.deviceManager) {
-      await this.deviceManager.close();
-    }
+    await this.deviceManager.close();
     this.client = null;
     this.initialized = false;
     this.serverError = null;
@@ -230,6 +174,5 @@ function getAdbManager() {
 }
 
 module.exports = {
-  AdbManager,
   getAdbManager
 };

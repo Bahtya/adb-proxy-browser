@@ -42,8 +42,7 @@ class TrayManager {
     const contextMenu = Menu.buildFromTemplate([
       {
         label: connected ? 'Connected' : 'Disconnected',
-        enabled: false,
-        icon: this.getStatusIcon(connected)
+        enabled: false
       },
       { type: 'separator' },
       {
@@ -78,15 +77,6 @@ class TrayManager {
     ]);
 
     this.tray.setContextMenu(contextMenu);
-  }
-
-  /**
-   * Get status icon (text-based for now)
-   */
-  getStatusIcon(connected) {
-    // Electron doesn't support text icons directly
-    // In production, you would use actual icon files
-    return nativeImage.createEmpty();
   }
 
   /**

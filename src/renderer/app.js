@@ -75,25 +75,11 @@ const elements = {
 
 // URL History Manager (uses main process for persistence)
 class URLHistory {
-  constructor() {
-    this.history = [];
-    this.load();
-  }
-
-  async load() {
-    try {
-      this.history = await window.electronAPI.getHistory();
-    } catch (e) {
-      console.warn('Failed to load URL history:', e);
-      this.history = [];
-    }
-  }
-
   async add(url, title = '') {
     if (!url || url === 'about:blank') return;
 
     try {
-      this.history = await window.electronAPI.addHistory(url, title);
+      return await window.electronAPI.addHistory(url, title);
     } catch (e) {
       console.warn('Failed to add URL history:', e);
     }
@@ -111,7 +97,6 @@ class URLHistory {
   async clear() {
     try {
       await window.electronAPI.clearHistory();
-      this.history = [];
     } catch (e) {
       console.warn('Failed to clear URL history:', e);
     }
@@ -811,94 +796,6 @@ class TerminalManager {
     }
 
     return this.connectSshMode();
-
-    // Clear terminal
-    this.terminal.clear();
-    this.terminal.write('\x1b[36m╔══════════════════════════════════════╗\x1b[0m\r\n');
-    this.terminal.write('\x1b[36m║   Connecting to Termux via SSH...   ║\x1b[0m\r\n');
-    this.terminal.write('\x1b[36m╚══════════════════════════════════════╝\x1b[0m\r\n');
-    console.log('[Terminal] Starting SSH connection process');
-    this.terminal.write('\x1b[90mStep 1/3: Waiting for SSH credentials...\x1b[0m\r\n');
-
-    // Prompt for credentials
-    this.updateStatus('connecting');
-    this.terminal.write('\r\n\x1b[90m⏳ Waiting for credentials...\x1b[0m\r\n');
-    const credentials = await this.promptCredentials();
-
-    if (!credentials || !credentials.username || !credentials.password) {
-      this.connecting = false;
-      this.terminal.write('\r\n\x1b[33m⚠ Connection cancelled by user\x1b[0m\r\n');
-      this.updateStatus('error', 'Cancelled');
-      console.log('[Terminal] Connection cancelled - no credentials provided');
-      return false;
-    }
-
-    this.credentials = credentials;
-    console.log('[Terminal] Credentials received, username:', credentials.username);
-    state.terminalLastError = '';
-
-    try {
-      // Step 1: Check device
-      this.terminal.write('\r\n\x1b[90m📱 Step 1/3: Checking device connection...\x1b[0m\r\n');
-      console.log('[Terminal] Step 1: Checking device connection');
-
-      // Get SSH settings
-      const sshLocalPort = parseInt(elements.settingsSshPort?.value || '8022', 10);
-      const sshRemotePort = parseInt(elements.settingsSshRemotePort?.value || '8022', 10);
-
-      // Step 2: Create ADB forward
-      this.terminal.write(`\x1b[90m🔌 Step 2/3: Creating ADB port forward (${sshLocalPort}→${sshRemotePort})...\x1b[0m\r\n`);
-      console.log(`[Terminal] Step 2: Creating ADB port forward (${sshLocalPort}→${sshRemotePort})`);
-
-      // Step 3: Connect via SSH
-      this.terminal.write('\x1b[90m🔐 Step 3/3: Establishing SSH connection...\x1b[0m\r\n');
-      console.log('[Terminal] Step 3: Establishing SSH connection');
-
-      this.terminal.write('\x1b[90mStep 2/3: Forwarding the SSH port through adb...\x1b[0m\r\n');
-      this.terminal.write(`\x1b[90mStep 3/3: Connecting to sshd on ${sshLocalPort} -> ${sshRemotePort}...\x1b[0m\r\n`);
-
-      const startTime = Date.now();
-      await window.electronAPI.terminalConnect({
-        mode: 'ssh',
-        username: credentials.username,
-        password: credentials.password,
-        localPort: sshLocalPort,
-        remotePort: sshRemotePort
-      });
-
-      const elapsed = Date.now() - startTime;
-      console.log('[Terminal] SSH connection established in', elapsed, 'ms');
-
-      this.connected = true;
-      this.connecting = false;
-      this.connectedMode = 'ssh';
-      this.updateModeUI();
-      this.updateStatus('connected');
-      this.terminal.write(`\r\n\x1b[32m✓ Connected successfully! (${elapsed}ms)\x1b[0m\r\n`);
-      this.terminal.write('\x1b[90m────────────────────────────────────────\x1b[0m\r\n\r\n');
-
-      // Fit terminal after connection
-      this.fit();
-
-      return true;
-    } catch (err) {
-      this.connecting = false;
-      console.error('[Terminal] Connection failed:', err.message);
-      console.error('[Terminal] Error details:', err);
-      state.terminalLastError = err.message;
-
-      this.terminal.write(`\r\n\x1b[31m✗ Connection failed!\x1b[0m\r\n`);
-      this.terminal.write(`\x1b[31m  Error: ${err.message}\x1b[0m\r\n`);
-      this.terminal.write('\r\n\x1b[33mTroubleshooting tips:\x1b[0m\r\n');
-      this.terminal.write('\x1b[33m  1. Make sure sshd is running in Termux (run: sshd)\x1b[0m\r\n');
-      this.terminal.write('\x1b[33m  2. Check username with: whoami\x1b[0m\r\n');
-      this.terminal.write('\x1b[33m  3. Reset password with: passwd\x1b[0m\r\n');
-      this.terminal.write('\x1b[33m  4. Verify device is connected (check main app)\x1b[0m\r\n');
-      this.terminal.write('\x1b[90m────────────────────────────────────────\x1b[0m\r\n');
-
-      this.updateStatus('error', 'Failed');
-      return false;
-    }
   }
 
   /**
@@ -2211,6 +2108,10 @@ let state = {
   currentUrl: '',
   adbError: null,
   autoConnecting: false,
+  probeInFlight: false,
+  probePhase: 'idle',
+  probeMessage: '',
+  reconnectAttempt: 0,
   terminalStatus: 'disconnected',
   terminalMessage: '',
   terminalLastError: '',
@@ -2222,6 +2123,27 @@ let state = {
     sshRemotePort: 8022
   }
 };
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function yieldToBrowser() {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function setProbeState(phase = 'idle', message = '') {
+  state.probePhase = phase;
+  state.probeMessage = message;
+}
+
+function isTerminalInteractionActive() {
+  if (!elements.terminalPanel || elements.terminalPanel.classList.contains('hidden')) {
+    return false;
+  }
+
+  return !!(terminalManager && (terminalManager.connected || terminalManager.connecting));
+}
 
 // Tab manager instance
 const tabManager = new TabManager();
@@ -2306,9 +2228,30 @@ async function init() {
 // when the tunnel drops.
 function startConnectionProbe() {
   const PROBE_INTERVAL = 2000;
+  const TERMINAL_ACTIVE_INTERVAL = 6000;
 
   async function probe() {
+    const interval = isTerminalInteractionActive() ? TERMINAL_ACTIVE_INTERVAL : PROBE_INTERVAL;
+
+    if (state.autoConnecting || state.probeInFlight) {
+      setTimeout(probe, interval);
+      return;
+    }
+
+    if (isTerminalInteractionActive()) {
+      setProbeState('paused', 'Probe slowed down while terminal input is active.');
+      updateTunnelStatusUI();
+      setTimeout(probe, interval);
+      return;
+    }
+
     try {
+      state.probeInFlight = true;
+      setProbeState('probing', state.connected ? 'Checking whether the local tunnel is still reachable...' : 'Checking tunnel status...');
+      updateConnectionUI();
+      updateTunnelStatusUI();
+      await yieldToBrowser();
+
       const result = await window.electronAPI.probe();
       state.tunnelAlive = !!result.tunnelAlive;
       state.lastProbeAt = Date.now();
@@ -2324,25 +2267,30 @@ function startConnectionProbe() {
         // Tunnel is alive
         state.connected = true;
         state.lastConnectError = '';
+        setProbeState('online', `Tunnel reachable at ${formatClock(state.lastProbeAt)}.`);
         if (!wasConnected) updateConnectionUI();
       } else {
         // Tunnel is down or was never up
         state.connected = false;
+        setProbeState('offline', state.devices.length > 0
+          ? 'Tunnel not reachable. Reconnect will start automatically.'
+          : 'No active device tunnel detected.');
         if (wasConnected) updateConnectionUI();
 
         // Trigger auto-connect if device is present and we're not already trying
         if (state.devices.length > 0 && !state.autoConnecting) {
           autoConnect();
         }
-      }
-
-      updateStatusBarProbe(result);
+      }      updateStatusBarProbe(result);
       updateTunnelStatusUI();
     } catch (e) {
-      // IPC failed — ignore silently
+      setProbeState('error', 'Status probe failed. Will retry automatically.');
+      updateTunnelStatusUI();
+    } finally {
+      state.probeInFlight = false;
     }
 
-    setTimeout(probe, PROBE_INTERVAL);
+    setTimeout(probe, interval);
   }
 
   // Start after a short delay to let init() finish
@@ -2381,6 +2329,9 @@ function buildTunnelSnapshot() {
   } else if (state.autoConnecting) {
     proxyStatusLabel = 'Connecting';
     proxyStatusTone = 'connecting';
+  } else if (state.probeInFlight || state.probePhase === 'probing') {
+    proxyStatusLabel = 'Checking';
+    proxyStatusTone = 'connecting';
   } else if (state.devices.length > 0) {
     proxyStatusLabel = 'Device Ready';
     proxyStatusTone = 'connecting';
@@ -2397,8 +2348,12 @@ function buildTunnelSnapshot() {
   let probeLabel = 'Waiting for first probe';
   if (state.connected && state.tunnelAlive && state.lastProbeAt) {
     probeLabel = `Reachable at ${formatClock(state.lastProbeAt)}`;
+  } else if (state.probePhase === 'probing') {
+    probeLabel = 'Checking tunnel reachability...';
+  } else if (state.probePhase === 'paused') {
+    probeLabel = 'Probe paused during active terminal input';
   } else if (state.autoConnecting) {
-    probeLabel = 'Waiting for proxy tunnel';
+    probeLabel = state.probeMessage || 'Waiting for proxy tunnel';
   } else if (state.devices.length > 0 && state.lastProbeAt) {
     probeLabel = `Not reachable at ${formatClock(state.lastProbeAt)}`;
   } else if (state.devices.length === 0) {
@@ -2412,6 +2367,8 @@ function buildTunnelSnapshot() {
     note = `${terminalMode.toUpperCase()} terminal error: ${state.terminalLastError}`;
   } else if (state.lastConnectError) {
     note = `Tunnel error: ${state.lastConnectError}`;
+  } else if (state.probeMessage) {
+    note = state.probeMessage;
   } else if (state.adbError && state.adbError.message) {
     note = state.adbError.message;
   } else if (state.autoConnecting) {
@@ -2465,7 +2422,10 @@ function updateStatusBarProbe(result) {
     text.textContent = 'Online';
   } else if (state.autoConnecting) {
     indicator.className = 'status-indicator connecting';
-    text.textContent = 'Connecting';
+    text.textContent = 'Reconnecting';
+  } else if (state.probeInFlight || state.probePhase === 'probing') {
+    indicator.className = 'status-indicator connecting';
+    text.textContent = 'Checking';
   } else if (result.devices && result.devices.length > 0) {
     indicator.className = 'status-indicator connecting';
     text.textContent = 'Device found';
@@ -2830,12 +2790,21 @@ function showWelcomeScreen() {
 async function autoConnect() {
   if (state.autoConnecting || state.connected || state.devices.length === 0) return;
   state.autoConnecting = true;
+  state.reconnectAttempt = 0;
   state.lastConnectError = '';
+  setProbeState('reconnecting', 'Preparing automatic reconnect...');
   updateConnectionUI();
   updateTunnelStatusUI();
+  await yieldToBrowser();
 
   while (state.devices.length > 0 && !state.connected) {
+    state.reconnectAttempt += 1;
     try {
+      setProbeState('reconnecting', `Reconnect attempt ${state.reconnectAttempt}: rebuilding the local ADB tunnel...`);
+      updateConnectionUI();
+      updateTunnelStatusUI();
+      await yieldToBrowser();
+
       await window.electronAPI.connect({
         localPort: state.config.localPort,
         remotePort: state.config.remotePort,
@@ -2844,15 +2813,24 @@ async function autoConnect() {
       state.connected = true;
       state.tunnelAlive = true;
       state.lastConnectError = '';
+      setProbeState('online', 'Tunnel restored.');
     } catch (err) {
       state.lastConnectError = err.message;
+      setProbeState('retry-wait', `Reconnect attempt ${state.reconnectAttempt} failed. Retrying in 2 seconds...`);
+      updateConnectionUI();
       updateTunnelStatusUI();
       // Retry after 2s
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await sleep(2000);
     }
   }
 
   state.autoConnecting = false;
+  state.reconnectAttempt = 0;
+  if (!state.connected && state.devices.length === 0) {
+    setProbeState('idle', 'Reconnect stopped because no device is currently available.');
+  } else if (!state.connected) {
+    setProbeState('idle', '');
+  }
   updateConnectionUI();
   updateTunnelStatusUI();
 }
@@ -2930,11 +2908,17 @@ function updateConnectionUI() {
     statusIndicator.className = 'status-indicator connected';
     statusText.textContent = 'Online';
   } else if (state.autoConnecting) {
-    btn.innerHTML = '<span>Connecting...</span>';
+    btn.innerHTML = `<span>${state.reconnectAttempt > 0 ? `Reconnecting #${state.reconnectAttempt}` : 'Connecting...'}</span>`;
     btn.classList.remove('connected');
     btn.disabled = true;
     statusIndicator.className = 'status-indicator connecting';
-    statusText.textContent = 'Connecting';
+    statusText.textContent = 'Reconnecting';
+  } else if (state.probeInFlight || state.probePhase === 'probing') {
+    btn.innerHTML = '<span>Checking tunnel...</span>';
+    btn.classList.remove('connected');
+    btn.disabled = true;
+    statusIndicator.className = 'status-indicator connecting';
+    statusText.textContent = 'Checking';
   } else {
     btn.innerHTML = `
       <svg viewBox="0 0 24 24" width="20" height="20">
@@ -3253,13 +3237,22 @@ window.addEventListener('resize', () => {
       'Webview': info.webview ? `${info.webview.height}px` : 'N/A'
     });
     console.log('Full info:', info);
+
+    // Check for issues
+    if (info.webview && info.webview.height < 300) {
+      console.warn('[Debug] ISSUE: Webview height is only ' + info.webview.height + 'px (should be > 300)');
+    }
+    if (info.wrapper && info.wrapper.height < 400 && info.wrapper.display !== 'none') {
+      console.warn('[Debug] ISSUE: Wrapper height is only ' + info.wrapper.height + 'px (should be > 400)');
+    }
+
     console.log('==================================\n');
     return info;
   }
 
   document.addEventListener('keydown', (e) => {
     // Ctrl+Shift+D: Toggle debug CSS
-    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.code === 'KeyD')) {
       e.preventDefault();
       if (debugStyles) {
         removeDebugCSS();
@@ -3268,7 +3261,7 @@ window.addEventListener('resize', () => {
       }
     }
     // Ctrl+Shift+L: Log layout info
-    if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.code === 'KeyL')) {
       e.preventDefault();
       logLayoutInfo();
     }
@@ -3389,142 +3382,3 @@ window.openExternal = function(url) {
   // Electron will open external links in default browser
   return true;
 };
-
-// ========== DEBUG MODE ==========
-// Press Ctrl+Shift+D to toggle debug visualization
-// Press Ctrl+Shift+L to log layout info to console
-(function() {
-  let debugStyles = null;
-
-  function injectDebugCSS() {
-    if (debugStyles) return;
-    debugStyles = document.createElement('style');
-    debugStyles.id = 'debug-styles';
-    debugStyles.textContent = `
-      /* Debug visualization */
-      .main-content { border: 3px solid orange !important; background: rgba(255,165,0,0.1) !important; }
-      .browser-wrapper { border: 3px solid red !important; background: rgba(255,0,0,0.1) !important; }
-      .browser-container { border: 3px solid blue !important; background: rgba(0,0,255,0.1) !important; }
-      webview, .browser-view { border: 3px solid green !important; background: rgba(0,255,0,0.2) !important; min-height: 100px !important; }
-      .welcome-screen { border: 3px solid purple !important; }
-      .toolbar { border: 2px solid cyan !important; }
-      .tab-bar { border: 2px solid magenta !important; }
-    `;
-    document.head.appendChild(debugStyles);
-    console.log('[Debug] CSS injected - colors: orange=main-content, red=browser-wrapper, blue=browser-container, green=webview, purple=welcome');
-  }
-
-  function removeDebugCSS() {
-    if (debugStyles) {
-      debugStyles.remove();
-      debugStyles = null;
-      console.log('[Debug] CSS removed');
-    }
-  }
-
-  function getLayoutInfo() {
-    const wrapper = document.getElementById('browser-wrapper');
-    const container = document.getElementById('browser-container');
-    const mainContent = document.querySelector('.main-content');
-    const welcome = document.getElementById('welcome-screen');
-    const webview = document.querySelector('webview');
-    const toolbar = document.querySelector('.toolbar');
-    const tabBar = document.getElementById('tab-bar');
-
-    const info = {
-      window: { width: window.innerWidth, height: window.innerHeight },
-      toolbar: toolbar ? {
-        height: toolbar.offsetHeight,
-        display: getComputedStyle(toolbar).display
-      } : null,
-      tabBar: tabBar ? {
-        height: tabBar.offsetHeight,
-        display: getComputedStyle(tabBar).display
-      } : null,
-      mainContent: mainContent ? {
-        display: getComputedStyle(mainContent).display,
-        flex: getComputedStyle(mainContent).flex,
-        height: mainContent.offsetHeight,
-        clientHeight: mainContent.clientHeight
-      } : null,
-      wrapper: wrapper ? {
-        display: getComputedStyle(wrapper).display,
-        flex: getComputedStyle(wrapper).flex,
-        position: getComputedStyle(wrapper).position,
-        height: wrapper.offsetHeight,
-        clientHeight: wrapper.clientHeight
-      } : null,
-      container: container ? {
-        display: getComputedStyle(container).display,
-        position: getComputedStyle(container).position,
-        height: container.offsetHeight,
-        clientHeight: container.clientHeight
-      } : null,
-      webview: webview ? {
-        display: getComputedStyle(webview).display,
-        position: getComputedStyle(webview).position,
-        width: webview.offsetWidth,
-        height: webview.offsetHeight,
-        clientWidth: webview.clientWidth,
-        clientHeight: webview.clientHeight,
-        src: webview.src ? webview.src.substring(0, 100) : null
-      } : null,
-      welcome: welcome ? {
-        display: getComputedStyle(welcome).display,
-        height: welcome.offsetHeight
-      } : null
-    };
-
-    console.log('\n========== LAYOUT INFO ==========');
-    console.log('Window:', info.window.width + 'x' + info.window.height);
-    if (info.mainContent) console.log('Main Content:', 'height=' + info.mainContent.height + 'px, flex=' + info.mainContent.flex);
-    if (info.wrapper) console.log('Browser Wrapper:', 'display=' + info.wrapper.display + ', height=' + info.wrapper.height + 'px');
-    if (info.container) console.log('Browser Container:', 'position=' + info.container.position + ', height=' + info.container.height + 'px');
-    if (info.webview) console.log('Webview:', 'height=' + info.webview.height + 'px, width=' + info.webview.width + 'px');
-    if (info.welcome) console.log('Welcome Screen:', 'display=' + info.welcome.display);
-    console.log('================================\n');
-
-    // Check for issues
-    if (info.webview && info.webview.height < 300) {
-      console.warn('⚠️ ISSUE: Webview height is only ' + info.webview.height + 'px (should be > 300)');
-    }
-    if (info.wrapper && info.wrapper.height < 400 && info.wrapper.display !== 'none') {
-      console.warn('⚠️ ISSUE: Wrapper height is only ' + info.wrapper.height + 'px (should be > 400)');
-    }
-
-    return info;
-  }
-
-  document.addEventListener('keydown', (e) => {
-    // Ctrl+Shift+D: Toggle debug CSS
-    if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.code === 'KeyD')) {
-      e.preventDefault();
-      if (debugStyles) {
-        removeDebugCSS();
-        alert('Debug CSS removed');
-      } else {
-        injectDebugCSS();
-        alert('Debug CSS injected - check colored borders');
-      }
-    }
-
-    // Ctrl+Shift+L: Log layout info
-    if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.code === 'KeyL')) {
-      e.preventDefault();
-      const info = getLayoutInfo();
-      alert('Layout Info:\n' +
-        'Window: ' + info.window.width + 'x' + info.window.height + '\n' +
-        'Webview height: ' + (info.webview ? info.webview.height : 'N/A') + 'px\n' +
-        'Wrapper height: ' + (info.wrapper ? info.wrapper.height : 'N/A') + 'px\n' +
-        'Container height: ' + (info.container ? info.container.height : 'N/A') + 'px\n' +
-        'Check console (F12) for full details');
-    }
-  });
-
-  // Expose to window for console access
-  window.debugLayout = {
-    injectCSS: injectDebugCSS,
-    removeCSS: removeDebugCSS,
-    getInfo: getLayoutInfo
-  };
-})();

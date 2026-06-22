@@ -285,7 +285,7 @@ class TerminalManager {
     const sshRemotePort = options.remotePort || 8022;
     console.log(`[Terminal] Creating ADB forward: tcp:${localPort} -> tcp:${sshRemotePort}`);
     try {
-      await this.adbManager.forwardSSH(localPort, device.id, sshRemotePort);
+      await this.adbManager.forward(localPort, sshRemotePort, device.id);
       console.log('[Terminal] ADB forward created successfully');
     } catch (err) {
       console.error('[Terminal] Failed to create ADB forward:', err.message);
@@ -319,7 +319,7 @@ class TerminalManager {
       console.error('[Terminal] TCP test failed:', tcpTestResult.error);
       // Clean up the forward since it's not working
       try {
-        await this.adbManager.removeSSHForward(localPort);
+        await this.adbManager.removeForward(localPort);
       } catch (e) {
         // Ignore cleanup errors
       }
@@ -599,7 +599,7 @@ class TerminalManager {
 
     // Remove ADB forward
     try {
-      await this.adbManager.removeSSHForward(this.sshLocalPort);
+      await this.adbManager.removeForward(this.sshLocalPort);
     } catch (err) {
       console.error('[Terminal] Failed to remove SSH forward:', err.message);
     }

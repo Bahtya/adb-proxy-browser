@@ -1,9 +1,7 @@
-const EventEmitter = require('events');
 const { spawn } = require('child_process');
 
-class PortForwarder extends EventEmitter {
+class PortForwarder {
   constructor(client, adbPath) {
-    super();
     this.client = client;
     this.adbPath = adbPath;
     this.activeForwards = new Map(); // deviceId -> [{localPort, remotePort, owned}]
@@ -133,7 +131,6 @@ class PortForwarder extends EventEmitter {
       this._upsertTrackedForward(deviceId, localPort, remotePort, true);
 
       console.log(`[ADB] Port forward created: ${deviceId} tcp:${localPort} -> tcp:${remotePort}`);
-      this.emit('forward:created', { deviceId, localPort, remotePort });
 
       return true;
     } catch (err) {
@@ -156,7 +153,6 @@ class PortForwarder extends EventEmitter {
     if (trackedForward && !trackedForward.owned) {
       this._removeTrackedForward(deviceId, localPort);
       console.log(`[ADB] Leaving external port forward intact: ${deviceId} tcp:${localPort}`);
-      this.emit('forward:removed', { deviceId, localPort });
       return true;
     }
 
@@ -174,7 +170,6 @@ class PortForwarder extends EventEmitter {
     this._removeTrackedForward(deviceId, localPort);
 
     console.log(`[ADB] Port forward removed: ${deviceId} tcp:${localPort}`);
-    this.emit('forward:removed', { deviceId, localPort });
     return true;
   }
 

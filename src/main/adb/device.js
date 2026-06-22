@@ -583,7 +583,5 @@ function getDeviceManager() {
 }
 
 module.exports = {
-  DeviceManager,
-  getDeviceManager,
-  findAdbPath
+  getDeviceManager
 };

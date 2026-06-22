@@ -28,13 +28,6 @@ class Logger {
   }
 
   /**
-   * Format timestamp for log entries
-   */
-  getTimestamp() {
-    return new Date().toISOString();
-  }
-
-  /**
    * Write log entry to file
    */
   writeToFile(level, tag, message, ...args) {
@@ -43,7 +36,7 @@ class Logger {
     }
 
     try {
-      const timestamp = this.getTimestamp();
+      const timestamp = new Date().toISOString();
       const argsStr = args.length > 0 ? ' ' + args.map(a => {
         if (typeof a === 'object') {
           try {
@@ -132,13 +125,6 @@ class Logger {
   }
 
   /**
-   * Get log directory path
-   */
-  getLogDir() {
-    return this.logDir;
-  }
-
-  /**
    * Open log folder in file explorer
    */
   openLogFolder() {
@@ -192,6 +178,5 @@ function getLogger() {
 }
 
 module.exports = {
-  Logger,
   getLogger
 };
