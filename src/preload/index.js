@@ -63,5 +63,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Clipboard sync
   getClipboardSyncEnabled: () => ipcRenderer.invoke('clipboard:getEnabled'),
-  setClipboardSyncEnabled: (enabled) => ipcRenderer.invoke('clipboard:setEnabled', enabled)
+  setClipboardSyncEnabled: (enabled) => ipcRenderer.invoke('clipboard:setEnabled', enabled),
+
+  // SSH credentials (encrypted via safeStorage in main process)
+  saveCredentials: (data) => ipcRenderer.invoke('credentials:save', data),
+  loadCredentials: () => ipcRenderer.invoke('credentials:load'),
+  clearCredentials: () => ipcRenderer.invoke('credentials:clear')
 });

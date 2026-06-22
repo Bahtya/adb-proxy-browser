@@ -6,7 +6,7 @@ const _procStart = process.hrtime.bigint();
 const _procStartMs = Date.now();
 console.log(`[StartupDiag] index.js first line reached: ${new Date(_procStartMs).toISOString()} (hrtime: ${_procStart})`);
 
-const { app, BrowserWindow, ipcMain, session, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, session, dialog, safeStorage } = require('electron');
 console.log(`[StartupDiag] +${Math.round(Number(process.hrtime.bigint() - _procStart) / 1e6)}ms after electron require`);
 const net = require('net');
 const { spawn } = require('child_process');
@@ -631,9 +631,13 @@ let clipboardManager = null;
 // History management
 const historyFile = path.join(app.getPath('userData'), 'url-history.json');
 const MAX_HISTORY_ITEMS = 100;
+let historyCache = null;
 
 // Bookmarks management
 const bookmarksFile = path.join(app.getPath('userData'), 'bookmarks.json');
+
+// SSH credentials management
+const credentialsFile = path.join(app.getPath('userData'), 'ssh-credentials.json');
 const DEFAULT_BOOKMARKS = [
   { title: 'Google', url: 'https://www.google.com' },
   { title: 'GitHub', url: 'https://github.com' },
@@ -662,20 +666,26 @@ function saveBookmarks(bookmarks) {
 }
 
 function loadHistory() {
+  if (historyCache !== null) {
+    return historyCache;
+  }
   try {
     if (fs.existsSync(historyFile)) {
       const data = fs.readFileSync(historyFile, 'utf-8');
-      return JSON.parse(data);
+      historyCache = JSON.parse(data);
+      return historyCache;
     }
   } catch (err) {
     console.error('[History] Failed to load:', err.message);
   }
-  return [];
+  historyCache = [];
+  return historyCache;
 }
 
 function saveHistory(history) {
   try {
     fs.writeFileSync(historyFile, JSON.stringify(history, null, 2));
+    historyCache = history;
   } catch (err) {
     console.error('[History] Failed to save:', err.message);
   }
@@ -1001,13 +1011,18 @@ function setupIpc() {
       const port = status.localPort || 7890;
       let done = false;
 
-      const finish = (alive) => {
+      const finish = async (alive) => {
         if (done) return;
         done = true;
         socket.destroy();
-        // If tunnel died, update connectionManager state
+        // If tunnel died, run a full disconnect so the adb forward is removed
+        // and connection state stays consistent.
         if (!alive && connectionManager.connected) {
-          connectionManager.connected = false;
+          try {
+            await connectionManager.disconnect();
+          } catch (err) {
+            console.error('[Connection] Probe-triggered disconnect failed:', err.message);
+          }
         }
         resolve({ connected: alive, tunnelAlive: alive, devices });
       };
@@ -1119,6 +1134,61 @@ function setupIpc() {
       clipboardManager.setEnabled(enabled);
     }
     return true;
+  });
+
+  // Credentials: Save (encrypts username + password with safeStorage to base64 JSON)
+  ipcMain.handle('credentials:save', async (event, data) => {
+    if (!safeStorage.isEncryptionAvailable()) {
+      return { success: false, error: 'safeStorage not available' };
+    }
+    try {
+      const { username, password } = data || {};
+      const payload = {
+        username: safeStorage.encryptString(String(username)).toString('base64'),
+        password: safeStorage.encryptString(String(password)).toString('base64')
+      };
+      fs.writeFileSync(credentialsFile, JSON.stringify(payload, null, 2));
+      return { success: true };
+    } catch (err) {
+      console.error('[Credentials] Failed to save:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Credentials: Load (decrypts and returns {username,password} or null)
+  ipcMain.handle('credentials:load', async () => {
+    if (!safeStorage.isEncryptionAvailable()) {
+      return null;
+    }
+    try {
+      if (!fs.existsSync(credentialsFile)) {
+        return null;
+      }
+      const data = JSON.parse(fs.readFileSync(credentialsFile, 'utf-8'));
+      if (!data || !data.username || !data.password) {
+        return null;
+      }
+      return {
+        username: safeStorage.decryptString(Buffer.from(data.username, 'base64')),
+        password: safeStorage.decryptString(Buffer.from(data.password, 'base64'))
+      };
+    } catch (err) {
+      console.error('[Credentials] Failed to load:', err.message);
+      return null;
+    }
+  });
+
+  // Credentials: Clear (deletes the credentials file)
+  ipcMain.handle('credentials:clear', async () => {
+    try {
+      if (fs.existsSync(credentialsFile)) {
+        fs.unlinkSync(credentialsFile);
+      }
+      return { success: true };
+    } catch (err) {
+      console.error('[Credentials] Failed to clear:', err.message);
+      return { success: false, error: err.message };
+    }
   });
 }
 

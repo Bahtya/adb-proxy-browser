@@ -324,13 +324,12 @@ class TerminalManager {
   }
 
   /**
-   * Load saved credentials from localStorage
+   * Load saved credentials via main process (safeStorage-encrypted)
    */
-  loadCredentials() {
+  async loadCredentials() {
     try {
-      const saved = localStorage.getItem('terminal_credentials');
-      if (saved) {
-        const data = JSON.parse(saved);
+      const data = await window.electronAPI.loadCredentials();
+      if (data && (data.username || data.password)) {
         this.rememberCredentials = true;
         return data;
       }
@@ -341,11 +340,11 @@ class TerminalManager {
   }
 
   /**
-   * Save credentials to localStorage
+   * Save credentials via main process (safeStorage-encrypted)
    */
-  saveCredentials(username, password) {
+  async saveCredentials(username, password) {
     try {
-      localStorage.setItem('terminal_credentials', JSON.stringify({ username, password }));
+      await window.electronAPI.saveCredentials({ username, password });
       console.log('[Terminal] Credentials saved');
     } catch (e) {
       console.warn('[Terminal] Failed to save credentials:', e);
@@ -353,11 +352,11 @@ class TerminalManager {
   }
 
   /**
-   * Clear saved credentials
+   * Clear saved credentials via main process
    */
-  clearCredentials() {
+  async clearCredentials() {
     try {
-      localStorage.removeItem('terminal_credentials');
+      await window.electronAPI.clearCredentials();
       this.rememberCredentials = false;
       console.log('[Terminal] Credentials cleared');
     } catch (e) {
@@ -554,7 +553,7 @@ class TerminalManager {
    */
   async promptCredentials() {
     // Check for saved credentials first
-    const saved = this.loadCredentials();
+    const saved = await this.loadCredentials();
 
     return new Promise((resolve) => {
       // Create a simple credential dialog
@@ -706,16 +705,16 @@ class TerminalManager {
         resolve(null);
       };
 
-      connectBtn.onclick = () => {
+      connectBtn.onclick = async () => {
         const username = usernameInput.value.trim();
         const password = passwordInput.value;
         const remember = rememberCheckbox.checked;
 
         // Save or clear credentials based on checkbox
         if (remember) {
-          this.saveCredentials(username, password);
+          await this.saveCredentials(username, password);
         } else {
-          this.clearCredentials();
+          await this.clearCredentials();
         }
 
         cleanup();
@@ -2102,6 +2101,8 @@ function handleFindResult(e) {
 let state = {
   connected: false,
   tunnelAlive: false,
+  manuallyDisconnected: false,
+  activeTunnelConfig: null,
   lastProbeAt: null,
   lastConnectError: '',
   devices: [],
@@ -2278,7 +2279,7 @@ function startConnectionProbe() {
         if (wasConnected) updateConnectionUI();
 
         // Trigger auto-connect if device is present and we're not already trying
-        if (state.devices.length > 0 && !state.autoConnecting) {
+        if (state.devices.length > 0 && !state.autoConnecting && !state.manuallyDisconnected) {
           autoConnect();
         }
       }      updateStatusBarProbe(result);
@@ -2642,20 +2643,36 @@ function processUrl(input) {
   input = input.trim();
   if (!input) return null;
 
+  // Compute a candidate URL based on heuristics
+  let result = null;
+
   // Check if it's already a URL with protocol
   if (input.startsWith('http://') || input.startsWith('https://')) {
-    return input;
+    result = input;
+  } else {
+    // Check if it looks like a URL (contains dot, localhost, or IP)
+    const isUrl = /^(localhost|\d+\.\d+\.\d+\.\d+|[\w-]+\.[\w.-]+)/i.test(input);
+
+    if (isUrl) {
+      // Try HTTPS first for domains, HTTP for localhost/IP
+      if (input.startsWith('localhost') || /^\d+\.\d+\.\d+\.\d+/.test(input)) {
+        result = 'http://' + input;
+      } else {
+        result = 'https://' + input;
+      }
+    }
   }
 
-  // Check if it looks like a URL (contains dot, localhost, or IP)
-  const isUrl = /^(localhost|\d+\.\d+\.\d+\.\d+|[\w-]+\.[\w.-]+)/i.test(input);
-
-  if (isUrl) {
-    // Try HTTPS first for domains, HTTP for localhost/IP
-    if (input.startsWith('localhost') || /^\d+\.\d+\.\d+\.\d+/.test(input)) {
-      return 'http://' + input;
+  // Validate the scheme defensively; fall back to a search query for anything else
+  if (result) {
+    try {
+      const protocol = new URL(result).protocol;
+      if (protocol === 'http:' || protocol === 'https:') {
+        return result;
+      }
+    } catch (e) {
+      // Malformed URL — fall through to search query
     }
-    return 'https://' + input;
   }
 
   // Treat as search query
@@ -2697,12 +2714,12 @@ function showSuggestions(suggestions) {
   }
 
   const html = suggestions.map((item, index) => `
-    <div class="url-suggestion-item" data-index="${index}" data-url="${item.url}">
+    <div class="url-suggestion-item" data-index="${index}" data-url="${escapeHtml(item.url)}">
       <svg class="url-suggestion-icon" viewBox="0 0 24 24" width="16" height="16">
         <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
       </svg>
-      <span class="url-suggestion-text">${highlightMatch(item.title, elements.urlInput.value)}</span>
-      <span class="url-suggestion-url">${item.url}</span>
+      <span class="url-suggestion-text">${highlightMatch(escapeHtml(item.title), elements.urlInput.value)}</span>
+      <span class="url-suggestion-url">${escapeHtml(item.url)}</span>
     </div>
   `).join('');
 
@@ -2736,6 +2753,16 @@ function highlightMatch(text, query) {
 
 function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Escape HTML special characters to prevent XSS in innerHTML templates
+function escapeHtml(string) {
+  return String(string)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // Handle suggestion keyboard navigation
@@ -2788,7 +2815,7 @@ function showWelcomeScreen() {
 
 // Auto-connect with retry every 2 seconds until success or no device
 async function autoConnect() {
-  if (state.autoConnecting || state.connected || state.devices.length === 0) return;
+  if (state.autoConnecting || state.connected || state.devices.length === 0 || state.manuallyDisconnected) return;
   state.autoConnecting = true;
   state.reconnectAttempt = 0;
   state.lastConnectError = '';
@@ -2813,14 +2840,20 @@ async function autoConnect() {
       state.connected = true;
       state.tunnelAlive = true;
       state.lastConnectError = '';
+      state.activeTunnelConfig = {
+        localPort: state.config.localPort,
+        remotePort: state.config.remotePort,
+        proxyType: state.config.proxyType
+      };
       setProbeState('online', 'Tunnel restored.');
     } catch (err) {
       state.lastConnectError = err.message;
-      setProbeState('retry-wait', `Reconnect attempt ${state.reconnectAttempt} failed. Retrying in 2 seconds...`);
+      const delay = Math.min(2000 * 2 ** Math.min(state.reconnectAttempt - 1, 4), 30000);
+      setProbeState('retry-wait', `Reconnect attempt ${state.reconnectAttempt} failed. Retrying in ${Math.round(delay / 1000)} seconds...`);
       updateConnectionUI();
       updateTunnelStatusUI();
-      // Retry after 2s
-      await sleep(2000);
+      // Retry with exponential backoff (capped at 30s)
+      await sleep(delay);
     }
   }
 
@@ -2839,6 +2872,7 @@ async function autoConnect() {
 async function toggleConnection() {
   if (!state.connected) {
     // Manual connect attempt if auto-connect isn't running
+    state.manuallyDisconnected = false;
     autoConnect();
     return;
   }
@@ -2849,6 +2883,7 @@ async function toggleConnection() {
     state.connected = false;
     state.tunnelAlive = false;
     state.lastConnectError = '';
+    state.manuallyDisconnected = true;
   } catch (err) {
     console.error('Disconnect failed:', err);
   }
@@ -2945,6 +2980,8 @@ function updateDeviceUI() {
       state.connected = false;
       updateConnectionUI();
     }
+    // Re-plugging a device should auto-connect again
+    state.manuallyDisconnected = false;
   } else {
     const device = state.devices[0];
     deviceInfo.innerHTML = `
@@ -2952,7 +2989,7 @@ function updateDeviceUI() {
       <span class="device-type">${device.type || 'USB'}</span>
     `;
     // Auto-connect when device is detected and not yet connected
-    if (!state.connected && !state.autoConnecting) {
+    if (!state.connected && !state.autoConnecting && !state.manuallyDisconnected) {
       autoConnect();
     }
   }
@@ -3071,6 +3108,27 @@ async function saveSettings() {
     await window.electronAPI.setConfig(state.config);
     updateSettingsUI();
     updateTunnelStatusUI();
+
+    // If connected and the active tunnel config changed, reconnect with the new settings
+    const active = state.activeTunnelConfig;
+    if (
+      state.connected &&
+      active &&
+      (active.localPort !== state.config.localPort ||
+        active.remotePort !== state.config.remotePort ||
+        active.proxyType !== state.config.proxyType)
+    ) {
+      state.manuallyDisconnected = false;
+      try {
+        await window.electronAPI.disconnect();
+        state.connected = false;
+        state.tunnelAlive = false;
+      } catch (e) {
+        console.error('Reconnect disconnect failed:', e);
+      }
+      autoConnect();
+    }
+
     closeSettings();
   } catch (err) {
     console.error('Failed to save settings:', err);

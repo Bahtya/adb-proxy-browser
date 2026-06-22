@@ -14,6 +14,7 @@ const BACKGROUND_DEVICE_REFRESH_COUNT = 15;
 const BACKGROUND_DEVICE_REFRESH_DELAY_MS = 2000;
 const SERVER_CHECK_RETRY_COUNT = 3;
 const SERVER_CHECK_RETRY_DELAY_MS = 250;
+const MAX_RESTART_ATTEMPTS = 5;
 
 // Platform-specific adb binary paths
 const ADB_PATHS = {
@@ -72,6 +73,7 @@ class DeviceManager extends EventEmitter {
     this._serverRunning = false;
     this._healthCheckInterval = null;
     this._reconnecting = false;
+    this._restartAttempts = 0;
     this._backgroundRefreshTimeout = null;
     this._backgroundRefreshRemaining = 0;
   }
@@ -291,6 +293,7 @@ class DeviceManager extends EventEmitter {
       } else if (isRunning && !this._serverRunning) {
         console.log('[ADB] Server recovered');
         this._serverRunning = true;
+        this._restartAttempts = 0;
         this.emit('server:started');
       }
     }, HEALTH_CHECK_INTERVAL);
@@ -313,6 +316,17 @@ class DeviceManager extends EventEmitter {
    */
   async _handleServerRestart() {
     if (this._reconnecting) return;
+
+    if (this._restartAttempts >= MAX_RESTART_ATTEMPTS) {
+      console.warn(`[ADB] Server restart gave up after ${MAX_RESTART_ATTEMPTS} attempts; stopping retries`);
+      this.emit('server:error', {
+        message: `ADB server restart failed repeatedly (after ${MAX_RESTART_ATTEMPTS} attempts).`,
+        help: 'Please start the ADB server manually, e.g. run "adb start-server" from a terminal, then reconnect.'
+      });
+      return;
+    }
+
+    this._restartAttempts += 1;
     this._reconnecting = true;
 
     try {
@@ -330,6 +344,7 @@ class DeviceManager extends EventEmitter {
       const started = await this._startAdbServer();
       if (started) {
         this._serverRunning = true;
+        this._restartAttempts = 0;
 
         // Reinitialize adbkit and tracking
         if (this.client) {
